@@ -1,0 +1,15 @@
+[package]
+name = "cfd-shell"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Windows 11 Explorer Shell Namespace Extension DLL for CustomerFD"
+
+[lib]
+name = "cfd_shell"
+crate-type = ["cdylib"]
+
+[dependencies]
+cfd-core = { path = "../cfd-core" }
+windows.workspace = true
+windows-core.workspace = true

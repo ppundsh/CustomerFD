@@ -1,0 +1,8 @@
+/target/
+/dist/
+*.key
+*.key.pub.bak
+*.log
+.vs/
+.vscode/
+*.tgz
