@@ -1010,10 +1010,31 @@ AtIyO3L+2hChTPioI3ojcgj/0wePAAUAAAAH
     #[test]
     fn shipped_key_file_accepts_a_pasted_key() {
         // assets/updater.pub starts with '#' instructions; a key pasted below them must be found.
-        let template = include_str!("../../../assets/updater.pub");
+        // Only the comment header is used, so the test does not depend on the committed key.
+        let header: String = include_str!("../../../assets/updater.pub")
+            .lines()
+            .filter(|l| l.trim_start().starts_with('#'))
+            .map(|l| format!("{l}\n"))
+            .collect();
         let key = "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3";
-        let file = format!("{template}\nuntrusted comment: minisign public key: 1234\n{key}\n");
+        let file = format!("{header}untrusted comment: minisign public key: 1234\n{key}\n");
         assert_eq!(normalize_public_key(&file).as_deref(), Some(key));
+    }
+
+    #[test]
+    fn committed_key_file_is_valid_when_present() {
+        // If a key has been committed, it must parse: a typo would silently disable updates.
+        let file = include_str!("../../../assets/updater.pub");
+        let has_key = file.lines().any(|l| {
+            let l = l.trim();
+            !l.is_empty() && !l.starts_with('#')
+        });
+        if has_key {
+            assert!(
+                normalize_public_key(file).is_some(),
+                "assets/updater.pub has an unparsable key"
+            );
+        }
     }
 
     #[test]
