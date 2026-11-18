@@ -389,18 +389,36 @@ impl IShellFolder_Impl for VirtualRootFolder_Impl {
             return result;
         }
         if let Ok(root_sf) = unsafe { self.bind_root_target_folder() } {
+            // Names here must be relative to this root. Explorer also hands us the full parsing
+            // name of a real folder directly under the root ("D:\\target\\child"); passed on
+            // as-is, the file-system folder parsed it into a bogus "Workspace\\..." item and the
+            // address bar kept the previous location's icon.
+            let relative = match self.relative_to_root(&full) {
+                Some(r) => r,
+                None => {
+                    crate::trace(|| format!("ParseDisplayName {full:?} -> not under this root"));
+                    return Err(E_INVALIDARG.into());
+                }
+            };
+            let rel_w = to_wide(&relative);
             let pbc_raw = pbc.map(|b| b.as_raw()).unwrap_or_default();
             let hr = unsafe {
                 (Interface::vtable(&root_sf).ParseDisplayName)(
                     Interface::as_raw(&root_sf),
                     hwnd,
                     pbc_raw,
-                    *pszdisplayname,
+                    PCWSTR(rel_w.as_ptr()),
                     pcheaten as *mut u32,
                     ppidl,
                     pdwattributes,
                 )
             };
+            crate::trace(|| {
+                format!(
+                    "ParseDisplayName {full:?} as {relative:?} -> 0x{:08X}",
+                    hr.0
+                )
+            });
             return hr.ok();
         }
         Err(E_INVALIDARG.into())
@@ -837,6 +855,36 @@ const FMTID_ITEM_TYPE: GUID = GUID::from_u128(0x28636AA6_953D_11D2_B5D6_00C04FD9
 const PID_ITEM_TYPE: u32 = 11;
 
 impl VirtualRootFolder_Impl {
+    /// `name` relative to this root: strips this root's target path or its own parsing name.
+    /// `None` for an absolute name outside the root.
+    fn relative_to_root(&self, name: &str) -> Option<String> {
+        fn strip(name: &str, prefix: &str) -> Option<String> {
+            let prefix = prefix.trim_end_matches('\\');
+            if prefix.is_empty() {
+                return None;
+            }
+            let head = name.get(..prefix.len())?;
+            if !head.eq_ignore_ascii_case(prefix) {
+                return None;
+            }
+            let rest = &name[prefix.len()..];
+            rest.starts_with('\\')
+                .then(|| rest.trim_start_matches('\\').to_string())
+        }
+        if let Some(target) = self.find_root_target_path() {
+            if let Some(rest) = strip(name, &target) {
+                return Some(rest);
+            }
+        }
+        if let Some(rest) = strip(name, &self.root_parsing_name()) {
+            return Some(rest);
+        }
+        let b = name.as_bytes();
+        let absolute =
+            name.starts_with("\\\\") || name.starts_with("::") || (b.len() >= 2 && b[1] == b':');
+        (!absolute).then(|| name.to_string())
+    }
+
     /// "root/child" description of a PIDL for the diagnostic trace (only evaluated when tracing).
     fn describe(&self, pidl: *const ITEMIDLIST) -> String {
         let name = unsafe {
