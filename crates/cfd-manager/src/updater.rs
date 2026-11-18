@@ -14,8 +14,10 @@
 //! [`WM_APP_UPDATE`].
 
 use crate::update_core::{
-    approval_statement, hex, is_newer, normalize_public_key, parse_approver_keys, parse_manifest,
-    prepare_approval_check, sanitize_version_for_file, sha256, split_https_url, Manifest,
+    approval_statement, hex, is_newer, is_openpgp_approval, normalize_public_key,
+    parse_approver_keys, parse_manifest, parse_openpgp_approver_keys, prepare_approval_check,
+    prepare_openpgp_approval_checks, sanitize_version_for_file, sha256, split_https_url,
+    Ed25519Check, Manifest,
 };
 use std::ffi::c_void;
 use std::path::PathBuf;
@@ -158,10 +160,13 @@ fn verify_signature(data: &[u8], signature_text: &str) -> Result<(), String> {
     })
 }
 
-/// Second, independent signature: the maintainer's YubiKey approval of `version + sha256`.
+/// Second, independent signature: the maintainer's YubiKey approval of `version + sha256`,
+/// made either with a FIDO2 SSH key (`ssh-keygen -Y sign`) or with the GnuPG key on the
+/// YubiKey's OpenPGP applet (`gpg --detach-sign --armor`).
 fn verify_approval(data: &[u8], m: &Manifest) -> Result<(), String> {
-    let approvers = parse_approver_keys(APPROVERS_FILE);
-    if approvers.is_empty() {
+    let sk_keys = parse_approver_keys(APPROVERS_FILE);
+    let pgp_keys = parse_openpgp_approver_keys(APPROVERS_FILE);
+    if sk_keys.is_empty() && pgp_keys.is_empty() {
         return Ok(()); // approval not configured for this build
     }
     let fail = |e: &str| {
@@ -177,19 +182,35 @@ fn verify_approval(data: &[u8], m: &Manifest) -> Result<(), String> {
         return Err(fail("no approval in latest.json"));
     }
     let statement = approval_statement(&m.version, &hex(&sha256(data)));
-    let check = prepare_approval_check(&m.approval, statement.as_bytes(), &approvers)
-        .map_err(|e| fail(&e))?;
-    let pk = ed25519_compact::PublicKey::from_slice(&check.public_key)
-        .map_err(|_| fail("bad approver key"))?;
-    let sig = ed25519_compact::Signature::from_slice(&check.signature)
-        .map_err(|_| fail("bad signature"))?;
-    pk.verify(&check.message, &sig)
-        .map_err(|_| fail("signature does not match"))
+    let checks: Vec<Ed25519Check> = if is_openpgp_approval(&m.approval) {
+        prepare_openpgp_approval_checks(&m.approval, statement.as_bytes(), &pgp_keys)
+            .map_err(|e| fail(&e))?
+    } else {
+        vec![
+            prepare_approval_check(&m.approval, statement.as_bytes(), &sk_keys)
+                .map_err(|e| fail(&e))?,
+        ]
+    };
+    let verified = checks.iter().any(|c| {
+        match (
+            ed25519_compact::PublicKey::from_slice(&c.public_key),
+            ed25519_compact::Signature::from_slice(&c.signature),
+        ) {
+            (Ok(pk), Ok(sig)) => pk.verify(&c.message, &sig).is_ok(),
+            _ => false,
+        }
+    });
+    if verified {
+        Ok(())
+    } else {
+        Err(fail("signature does not match an approver key"))
+    }
 }
 
 /// True when this build requires a YubiKey approval for updates.
 pub fn requires_approval() -> bool {
     !parse_approver_keys(APPROVERS_FILE).is_empty()
+        || !parse_openpgp_approver_keys(APPROVERS_FILE).is_empty()
 }
 
 fn download_verify_launch(hwnd: usize, m: &Manifest) -> Result<(), String> {

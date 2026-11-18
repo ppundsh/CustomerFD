@@ -10,7 +10,9 @@
       * Windows file/product version (PE)  -> build_res.rs reads CARGO_PKG_VERSION_*
       * installer "DisplayVersion"         -> env!("CARGO_PKG_VERSION")
     This script rewrites Cargo.toml, refreshes the workspace entries in Cargo.lock, and can
-    create the matching `vX.Y.Z` git tag. Pushing that tag triggers .github/workflows/release.yml.
+    create the matching signed `vX.Y.Z` git tag (YubiKey). Pushing that tag triggers
+    .github/workflows/release.yml, which builds a draft release; publish it with
+    scripts\approve-release.ps1 -Tag vX.Y.Z.
 
 .EXAMPLE
     .\bump-version.ps1                 # 0.3.0 -> 0.3.1 (patch), files only
@@ -88,10 +90,13 @@ if ($new -ne $old) {
 if ($Tag) {
     if ($new -ne $old) {
         Invoke-Git add Cargo.toml Cargo.lock
-        Invoke-Git commit -q -m "chore(release): v$new"
+        # -S: signed with the YubiKey (user.signingkey); needs the PIN and a touch.
+        Invoke-Git commit -S -q -m "chore(release): v$new"
     }
-    Invoke-Git tag -a "v$new" -m "CustomerFD v$new"
-    Write-Host "==> Tagged v$new" -ForegroundColor Green
+    # -s: signed annotated tag. CI refuses to build tags that are not signed by a release approver.
+    Invoke-Git tag -s "v$new" -m "CustomerFD v$new"
+    Invoke-Git verify-tag "v$new"
+    Write-Host "==> Tagged v$new (signed)" -ForegroundColor Green
 }
 if ($Push) {
     $branch = (& git.exe rev-parse --abbrev-ref HEAD).Trim()

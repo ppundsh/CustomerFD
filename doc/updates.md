@@ -80,52 +80,62 @@ https://github.com/ppundsh/CustomerFD/releases/latest/download/latest.json
 | Resource exhaustion | Manifest ≤ 64 KiB, installer ≤ 256 MiB, JSON depth ≤ 16 |
 | Build without a key | With no key in `assets/updater.pub` updates are disabled (download from GitHub instead), and CI refuses to release such a build |
 | Install without consent | The automatic check only notifies; download and install need a button press and a confirmation |
-| Compromised GitHub account / CI (optional) | Add a maintainer YubiKey approval, see section 6 |
+| Leaked GitHub account, CI or signing key | A maintainer YubiKey approval of the version and installer SHA-256 is also required, see section 4 |
 
 ---
 
-## 4. One-time publisher setup
+## 4. YubiKey release approval (second signature)
 
-1. **Generate a minisign key** (a password is recommended):
+With only the CI minisign key, a compromise of the GitHub account, the workflow or its secrets would be enough to ship a "correctly signed" malicious update. From 0.3.2 the updater therefore also requires **an approval signed by the maintainer's YubiKey**:
+
+| Layer | Held by | Proves |
+|---|---|---|
+| minisign signature (`.sig`) | secret of the GitHub `release` environment | the installer was built by CI |
+| YubiKey approval (`approval` in `latest.json`) | the maintainer's YubiKey (private key cannot be exported) | the maintainer personally approved **this version + this installer SHA-256** |
+
+- The approval is a fixed-format text: `customerfd-release\nversion=<version>\nsha256=<installer SHA-256>\n`. Its first line names the product, so an approval made with the same YubiKey key for another project (such as cbxshell-rs) is never valid here.
+- The updater rebuilds that text from the SHA-256 of what it downloaded and checks it against the keys in `assets/release-approvers.pub`. As soon as that file lists a key, every build from that source **requires** an approval; a missing or invalid one aborts the update.
+- Release tags must be signed with the same YubiKey (`git tag -s`): `.githooks/pre-push` rejects unsigned commits and tags, and CI verifies the tag signature before building.
+
+### Either kind of YubiKey key works
+
+| | GnuPG (OpenPGP card, in use) | FIDO2 SSH key |
+|---|---|---|
+| For | an Ed25519 key moved onto the YubiKey with `gpg --edit-key` › `keytocard` | a key made with `ssh-keygen -t ed25519-sk` |
+| Setup script | `scripts\setup-gpg-signing.ps1` | `scripts\setup-yubikey.ps1` |
+| Approval | `gpg --detach-sign --armor` (SHA-256 / SHA-512) | `ssh-keygen -Y sign -n customerfd-release` |
+| `release-approvers.pub` | `openpgp ssh-ed25519 AAAA… openpgp:0x…` (output of `gpg --export-ssh-key <KEYID>!`: key material only, no e-mail) | `sk-ssh-ed25519@openssh.com AAAA…` |
+| Proof of touch | the signature cannot prove a touch; run `ykman openpgp keys set-touch sig on` so every signature needs one | the signature carries the UP / UV flags, which the updater checks |
+
+The updater picks the check by the format of `approval` (`BEGIN PGP SIGNATURE` or `BEGIN SSH SIGNATURE`); both accept Ed25519 only, and only keys listed in `release-approvers.pub`.
+
+---
+
+## 5. One-time publisher setup
+
+1. **YubiKey**: with the YubiKey plugged in, run `scripts\setup-gpg-signing.ps1 -KeyId <KEYID>`. It does not create or change keys; it configures this repo (`gpg.format=openpgp`, `gpg.program`, `user.signingkey`, always-sign commits and tags, the `pre-push` hook via `core.hooksPath=.githooks`), makes sure the key's public value is in `assets/release-approvers.pub` and signs a test. For a FIDO2 SSH key use `scripts\setup-yubikey.ps1` instead. git's `user.email` must be one of the key's user IDs and verified on GitHub for commits to show as Verified.
+2. **minisign key** (for CI; a password is recommended):
 
    ```powershell
    npx @tauri-apps/cli@2 signer generate -w "$HOME\.tauri\customerfd.key"
    ```
 
-2. Paste the contents of `customerfd.key.pub` into `assets/updater.pub` (the leading `#` lines may stay) and commit it. **Never commit the private key**; back it up separately.
-3. **GitHub secrets**: under **Settings › Environments** create an environment named `release`, enable **Required reviewers** (yourself), limit deployment tags to `v*`, and add:
-   - `CFD_UPDATER_KEY`: the **contents** of the private key file
-   - `CFD_UPDATER_KEY_PASSWORD`: its password (empty string if none)
-4. Recommended: a ruleset on `refs/tags/v*` so only admins can create or delete release tags, and no force pushes to the default branch.
+   Paste the contents of `customerfd.key.pub` into `assets/updater.pub` and commit it. **Never commit the private key**; back it up separately.
+3. **GitHub repository settings**:
+   - **Settings › Environments › `release`**: enable **Required reviewers** (yourself), limit deployment tags to `v*`, and keep the secrets `CFD_UPDATER_KEY` (the **contents** of the private key file) and `CFD_UPDATER_KEY_PASSWORD` (empty string if none) here. Delete repository secrets of the same name: they are not protected by the environment.
+   - **Settings › Rules › Rulesets**: only admins may create, delete or update `refs/tags/v*`; on the default branch require signed commits and block force pushes.
+   - Account **Settings › Password and authentication**: register the YubiKey as a security key / passkey and remove weaker 2FA methods such as SMS.
 
-> Do not swap the public key once it has shipped: older control centers only trust the old key. If you must, first release a transition version signed with the old key that contains the new key.
+> Do not swap a public key (minisign or YubiKey) once it has shipped: older control centers only trust the old one. If you must, first release a transition version that lists both keys and is still signed and approved with the old ones.
 
 ---
 
-## 5. Releasing
+## 6. Releasing
 
-1. `.\bump-version.ps1` (or `.\bump-version.ps1 0.3.1 -Tag -Push`) updates the version in `Cargo.toml`, commits and tags `vX.Y.Z`.
-2. Pushing the tag runs GitHub Actions: tag matches version → `assets/updater.pub` has a key → tests → `build.ps1` → `release-manifest.ps1` (minisign signature + `latest.json`) → publish the release with `CustomerFD-Setup.exe`, `.sig`, `latest.json` and a source zip.
-3. With required reviewers on the `release` environment, approve the run in the Actions tab before it receives the key.
-
-Manual release from your PC:
-
-```powershell
-.\build.ps1
-$env:TAURI_SIGNING_PRIVATE_KEY = "$HOME\.tauri\customerfd.key"
-$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = '<password>'
-.\release-manifest.ps1 -Tag v0.3.1
-# upload dist\CustomerFD-Setup.exe, CustomerFD-Setup.exe.sig and latest.json to the release
-```
+1. With the YubiKey plugged in, a clean work tree and `.\run-checks.ps1` passing, run `.\bump-version.ps1 patch -Push`: bump the version → signed commit → signed tag `vX.Y.Z` (checked with `git verify-tag`) → push branch and tag (each needs the YubiKey PIN / touch).
+2. GitHub Actions waits for **Review deployments › Approve** on the web page, then: tag signed by an approver → tag matches the version → `assets/updater.pub` has a key → tests → `build.ps1` → `release-manifest.ps1` (minisign signature + `latest.json`) → **draft** release. A draft never appears under `releases/latest`, so users do not get it.
+3. Run `scripts\approve-release.ps1 -Tag vX.Y.Z` locally (needs the GitHub CLI: `winget install GitHub.cli`, `gh auth login`): it checks the tag signature, downloads the draft, checks version and URL, shows the installer SHA-256 for you to confirm, signs the approval with the YubiKey and verifies it locally, writes it into `latest.json`, uploads it and publishes the release.
 
 > `releases/latest/download/latest.json` only follows the **newest published release**; drafts and pre-releases never reach users.
-
----
-
-## 6. Optional: YubiKey release approval
-
-The updater already contains cbxshell-rs's YubiKey approval check; it is inactive while `assets/release-approvers.pub` lists no key. Once enabled, a leaked GitHub account, workflow or minisign key is no longer enough to ship an update:
-
-- Add the maintainer's `sk-ssh-ed25519@openssh.com` public key (FIDO2, PIN + touch) to `assets/release-approvers.pub`. As soon as one key is listed, every build from that source **requires** an approval.
-- The approval signs `customerfd-release\nversion=<version>\nsha256=<installer SHA-256>\n` with `ssh-keygen -Y sign -n customerfd-release` and is stored in the `approval` field of `latest.json`.
-- The release flow then becomes "CI creates a draft → approve locally with the YubiKey → publish"; see cbxshell-rs `scripts/approve-release.ps1` and its `doc/updates.md`, sections 4–6.
+>
+> Versions up to 0.3.1 carry no approver key and only check the minisign signature, so they can still update to 0.3.2. From 0.3.2 on, **every** release must go through step 3; an unapproved release cannot be installed by users.

@@ -796,6 +796,196 @@ pub fn prepare_approval_check(
 }
 
 // ---------------------------------------------------------------------------------------------
+// OpenPGP approvals: the same statement signed with a GnuPG key kept on the YubiKey's OpenPGP
+// applet (`gpg --detach-sign --armor`). Approver keys are listed as
+// `openpgp ssh-ed25519 AAAA… openpgp:0x…`, i.e. the output of `gpg --export-ssh-key <KEYID>!`
+// prefixed with `openpgp` — key material only, no user ID / e-mail.
+
+const OPENPGP_PREFIX: &str = "openpgp";
+const PGP_ALGO_EDDSA_LEGACY: u8 = 22;
+const PGP_ALGO_ED25519: u8 = 27;
+const PGP_HASH_SHA256: u8 = 8;
+const PGP_HASH_SHA512: u8 = 10;
+
+/// Ed25519 keys of OpenPGP approvers (`openpgp ssh-ed25519 <blob> …` lines).
+pub fn parse_openpgp_approver_keys(file: &str) -> Vec<[u8; 32]> {
+    let mut out = Vec::new();
+    for line in file.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
+        let tokens: Vec<&str> = line.split_whitespace().collect();
+        if tokens.len() < 3 || tokens[0] != OPENPGP_PREFIX || tokens[1] != "ssh-ed25519" {
+            continue;
+        }
+        let Some(blob) = base64_decode(tokens[2]) else {
+            continue;
+        };
+        let mut w = Wire { b: &blob, i: 0 };
+        let parsed = (|| -> Result<[u8; 32], String> {
+            if w.string()? != b"ssh-ed25519" {
+                return Err("type".into());
+            }
+            let pk = w.string()?;
+            if pk.len() != 32 || !w.done() {
+                return Err("len".into());
+            }
+            let mut k = [0u8; 32];
+            k.copy_from_slice(pk);
+            Ok(k)
+        })();
+        if let Ok(k) = parsed {
+            if !out.contains(&k) {
+                out.push(k);
+            }
+        }
+    }
+    out
+}
+
+fn pgp_dearmor(armored: &str, kind: &str) -> Option<Vec<u8>> {
+    let begin = format!("-----BEGIN PGP {kind}-----");
+    let mut lines = armored
+        .lines()
+        .map(str::trim)
+        .skip_while(|l| *l != begin)
+        .skip(1);
+    // Armor headers (e.g. "Comment: …") end at the first blank line.
+    for l in lines.by_ref() {
+        if l.is_empty() {
+            break;
+        }
+    }
+    let body: String = lines
+        .take_while(|l| !l.starts_with("-----END") && !l.starts_with('='))
+        .collect();
+    base64_decode(&body)
+}
+
+/// First packet of an OpenPGP stream: (tag, body).
+fn pgp_first_packet(b: &[u8]) -> Result<(u8, &[u8]), String> {
+    let ctb = *b.first().ok_or("OpenPGP: empty")?;
+    if ctb & 0x80 == 0 {
+        return Err("OpenPGP: bad packet header".into());
+    }
+    let (tag, start, len) = if ctb & 0x40 != 0 {
+        let o1 = *b.get(1).ok_or("OpenPGP: truncated")? as usize;
+        match o1 {
+            0..=191 => (ctb & 0x3F, 2, o1),
+            192..=223 => {
+                let o2 = *b.get(2).ok_or("OpenPGP: truncated")? as usize;
+                (ctb & 0x3F, 3, ((o1 - 192) << 8) + o2 + 192)
+            }
+            255 => {
+                let l = b.get(2..6).ok_or("OpenPGP: truncated")?;
+                (
+                    ctb & 0x3F,
+                    6,
+                    u32::from_be_bytes([l[0], l[1], l[2], l[3]]) as usize,
+                )
+            }
+            _ => return Err("OpenPGP: partial lengths are not supported".into()),
+        }
+    } else {
+        let n = match ctb & 3 {
+            0 => 1,
+            1 => 2,
+            2 => 4,
+            _ => return Err("OpenPGP: indeterminate length".into()),
+        };
+        let l = b.get(1..1 + n).ok_or("OpenPGP: truncated")?;
+        let len = l.iter().fold(0usize, |acc, &x| (acc << 8) | x as usize);
+        ((ctb >> 2) & 0x0F, 1 + n, len)
+    };
+    let body = b
+        .get(start..start + len)
+        .ok_or("OpenPGP: truncated packet")?;
+    Ok((tag, body))
+}
+
+/// Validates an armored OpenPGP detached signature over `message` and returns one Ed25519
+/// check per approver key (the signature is accepted when any of them verifies).
+pub fn prepare_openpgp_approval_checks(
+    armored: &str,
+    message: &[u8],
+    keys: &[[u8; 32]],
+) -> Result<Vec<Ed25519Check>, String> {
+    if keys.is_empty() {
+        return Err("approval: no OpenPGP approver keys".into());
+    }
+    let raw = pgp_dearmor(armored, "SIGNATURE").ok_or("approval: not an OpenPGP signature")?;
+    let (tag, body) = pgp_first_packet(&raw)?;
+    if tag != 2 || body.first() != Some(&4) {
+        return Err("approval: unsupported OpenPGP signature packet".into());
+    }
+    let sig_type = body.get(1).copied().ok_or("approval: truncated")?;
+    let algo = body.get(2).copied().ok_or("approval: truncated")?;
+    let hash_alg = body.get(3).copied().ok_or("approval: truncated")?;
+    if sig_type != 0x00 {
+        return Err(
+            "approval: must be a binary-document signature (no --textmode / --clearsign)".into(),
+        );
+    }
+    let mut w = Wire { b: body, i: 4 };
+    let hl = {
+        let b = w.bytes(2)?;
+        u16::from_be_bytes([b[0], b[1]]) as usize
+    };
+    w.bytes(hl)?;
+    let hashed_end = w.i;
+    let ul = {
+        let b = w.bytes(2)?;
+        u16::from_be_bytes([b[0], b[1]]) as usize
+    };
+    w.bytes(ul)?;
+    let left16 = w.bytes(2)?;
+    let mut signature = [0u8; 64];
+    match algo {
+        PGP_ALGO_EDDSA_LEGACY => {
+            for half in 0..2 {
+                let bits = {
+                    let b = w.bytes(2)?;
+                    u16::from_be_bytes([b[0], b[1]]) as usize
+                };
+                let v = w.bytes(bits.div_ceil(8))?;
+                if v.len() > 32 {
+                    return Err("approval: malformed EdDSA value".into());
+                }
+                // MPIs drop leading zero bytes; restore the fixed 32-byte width.
+                signature[half * 32 + 32 - v.len()..half * 32 + 32].copy_from_slice(v);
+            }
+        }
+        PGP_ALGO_ED25519 => signature.copy_from_slice(w.bytes(64)?),
+        _ => return Err("approval: OpenPGP key is not Ed25519".into()),
+    }
+    if !w.done() {
+        return Err("approval: trailing data in signature".into());
+    }
+    let mut hashed = message.to_vec();
+    hashed.extend_from_slice(&body[..hashed_end]);
+    hashed.extend_from_slice(&[0x04, 0xFF]);
+    hashed.extend_from_slice(&(hashed_end as u32).to_be_bytes());
+    let digest: Vec<u8> = match hash_alg {
+        PGP_HASH_SHA256 => sha256(&hashed).to_vec(),
+        PGP_HASH_SHA512 => sha512(&hashed).to_vec(),
+        _ => return Err("approval: unsupported OpenPGP hash algorithm".into()),
+    };
+    if digest[..2] != *left16 {
+        return Err("approval: signature does not match this release".into());
+    }
+    Ok(keys
+        .iter()
+        .map(|k| Ed25519Check {
+            public_key: *k,
+            message: digest.clone(),
+            signature,
+        })
+        .collect())
+}
+
+/// True when the approval text is an OpenPGP signature (else an SSH signature).
+pub fn is_openpgp_approval(armored: &str) -> bool {
+    armored.contains("-----BEGIN PGP SIGNATURE-----")
+}
+
+// ---------------------------------------------------------------------------------------------
 // Manifest
 
 pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
@@ -1005,6 +1195,88 @@ AtIyO3L+2hChTPioI3ojcgj/0wePAAUAAAAH
         )
         .is_empty());
         assert!(prepare_approval_check("garbage", b"x", &keys).is_err());
+    }
+
+    // Real GnuPG 2.4 output: ed25519 primary key (SHA-512 and SHA-256 digests) and an ed25519
+    // signing subkey, signing the CBX Shell statement for version 2.0.2 / sha256("installer")
+    // (same format, other namespace: CustomerFD's own statement differs, see the replay test).
+    const PGP_APPROVERS: &str = "openpgp ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB/6e3P+4dWrvWYmeWJUbWZt2u6i6runPzdqJTeDphQx openpgp:0x19993E22\nopenpgp ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINfO1Qo/pIi8oYb1aFyysoq6BbtrtmZGRFJ8PRY8zxeP openpgp:0x2B32EC6D\n";
+    const PGP_PRIMARY_SHA512: &str = "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTkAlC9xSm/B5J4fLGn81zbGZk+IgUCav2U1QAKCRCn81zbGZk+\nIq1tAP9f4ieJcp4uwEUfVjb7RZR335eZcJ2s5vRPhNud9/DW5wEA414j/trm6aww\nnpAjlBLUzNOq9bCZtxEV8YNk5RXaFwM=\n=VMGX\n-----END PGP SIGNATURE-----\n";
+    const PGP_SUBKEY: &str = "-----BEGIN PGP SIGNATURE-----\n\niHUEABYKAB0WIQTyZ/amCRh3t1J/Lix0yNJKKzLsbQUCav2U1QAKCRB0yNJKKzLs\nbXubAQD45kbPfosPulis1eXgFjZghKXjpNf8USVV/roPIBSD6gEA3HPcB+nWtp2r\nEvutJTy42eRyQBsAGgc35tLi/Rcu8gI=\n=5Hac\n-----END PGP SIGNATURE-----\n";
+    const PGP_PRIMARY_SHA256: &str = "-----BEGIN PGP SIGNATURE-----\n\niHUEABYIAB0WIQTkAlC9xSm/B5J4fLGn81zbGZk+IgUCav2U1QAKCRCn81zbGZk+\nIuxBAQCul0QYLIHcBrhGH/TEPZWBkm22z1XDm7yBhO3+tXhLwgD8Cp6ecMCTbTN0\nmTQuQCZgyoU9OXZrzMusCrnGxByzqgA=\n=A74z\n-----END PGP SIGNATURE-----\n";
+
+    #[test]
+    fn openpgp_approval_matches_gnupg() {
+        let keys = parse_openpgp_approver_keys(PGP_APPROVERS);
+        assert_eq!(keys.len(), 2);
+        assert_eq!(
+            hex(&keys[0]),
+            "1ffa7b73fee1d5abbd66267962546d666ddaeea2eabba73f376a253783a61431"
+        );
+        // Software SSH keys without the `openpgp` prefix are not OpenPGP approvers.
+        assert!(parse_openpgp_approver_keys(
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB/6e3P+4dWrvWYmeWJUbWZt2u6i6runPzdqJTeDphQx x"
+        )
+        .is_empty());
+        let stmt = pgp_vector_statement(b"installer");
+        for (armored, digest, sig) in [
+            (PGP_PRIMARY_SHA512, "ad6d605a5e7ab4440317bd5e5d6f32f2272bd96684e5d47353d9cb41c988d85dca18ab23573669e86b9dd3f0bbeb9dde244cfd172c2feab05307a905b2a28462", "5fe22789729e2ec0451f5636fb459477df9799709dace6f44f84db9df7f0d6e7e35e23fedae6e9ac309e90239412d4ccd3aaf5b099b71115f18364e515da1703"),
+            (PGP_SUBKEY, "7b9b22e1b66082539ba8e009421490cbda0a1a43568b65ecd02c7ea6a4184e0135a92a90437b7ad5f6044eec0bfe9ba82a2556a3a21be11b1c91f2d8036ddf20", "f8e646cf7e8b0fba58acd5e5e016366084a5e3a4d7fc512555feba0f201483eadc73dc07e9d6b69dab12fbad253cb8d9e472401b001a0737e6d2e2fd172ef202"),
+            (PGP_PRIMARY_SHA256, "ec417505556c5565292e656421f78eac274b32520da69903a75dd6c6d5b739bf", "ae9744182c81dc06b8461ff4c43d9581926db6cf55c39bbc8184edfeb5784bc20a9e9e70c0936d337499342e402660ca853d39766bcccbac0ab9c6c41cb3aa00"),
+        ] {
+            assert!(is_openpgp_approval(armored));
+            let checks = prepare_openpgp_approval_checks(armored, stmt.as_bytes(), &keys).unwrap();
+            assert_eq!(checks.len(), 2);
+            assert_eq!(hex(&checks[0].message), digest);
+            assert_eq!(hex(&checks[0].signature), sig);
+            assert!(checks.iter().any(|c| {
+                let pk = ed25519_compact::PublicKey::from_slice(&c.public_key).unwrap();
+                let s = ed25519_compact::Signature::from_slice(&c.signature).unwrap();
+                pk.verify(&c.message, &s).is_ok()
+            }));
+        }
+        // Another installer hash no longer matches the digest prefix stored in the signature.
+        let other = pgp_vector_statement(b"evil");
+        assert!(
+            prepare_openpgp_approval_checks(PGP_PRIMARY_SHA512, other.as_bytes(), &keys).is_err()
+        );
+        assert!(prepare_openpgp_approval_checks(PGP_PRIMARY_SHA512, stmt.as_bytes(), &[]).is_err());
+    }
+
+    fn pgp_vector_statement(installer: &[u8]) -> String {
+        format!(
+            "cbxshell-release\nversion=2.0.2\nsha256={}\n",
+            hex(&sha256(installer))
+        )
+    }
+
+    #[test]
+    fn openpgp_approval_for_another_product_is_rejected() {
+        // The same maintainer key approves several products; an approval made for CBX Shell
+        // must not be accepted as a CustomerFD approval of the same version and installer.
+        let keys = parse_openpgp_approver_keys(PGP_APPROVERS);
+        let ours = approval_statement("2.0.2", &hex(&sha256(b"installer")));
+        assert_ne!(ours, pgp_vector_statement(b"installer"));
+        assert!(
+            prepare_openpgp_approval_checks(PGP_PRIMARY_SHA512, ours.as_bytes(), &keys).is_err()
+        );
+    }
+
+    #[test]
+    fn committed_approvers_parse() {
+        // Every non-comment line of assets/release-approvers.pub must be a usable key: a typo
+        // would make every approved release fail to install.
+        let file = include_str!("../../../assets/release-approvers.pub");
+        let lines = file
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .count();
+        let parsed = parse_approver_keys(file).len() + parse_openpgp_approver_keys(file).len();
+        assert_eq!(
+            parsed, lines,
+            "assets/release-approvers.pub has an unparsable line"
+        );
     }
 
     #[test]

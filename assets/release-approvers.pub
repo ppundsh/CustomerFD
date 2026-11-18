@@ -1,8 +1,17 @@
-# CustomerFD release approvers — maintainer YubiKey (FIDO2) public keys. OPTIONAL.
+# CustomerFD release approvers — maintainer YubiKey public keys.
 #
-# Leave this file without key lines to rely on the CI minisign signature alone (current setup).
-# Once at least one key is listed, the updater in builds made from this source refuses any update
-# whose latest.json lacks an approval signed with one of these keys
-# (ssh-keygen -Y sign -n customerfd-release, touch + PIN). Only hardware-backed
-# "sk-ssh-ed25519@openssh.com" keys are accepted. One key per line, e.g.
-# sk-ssh-ed25519@openssh.com AAAAGnNr... (YubiKey)
+# Once at least one key is listed here, the updater in builds made from this source refuses any
+# update whose latest.json does not carry an approval signed with one of these keys
+# in addition to the CI minisign signature. Two kinds of YubiKey keys are accepted:
+#
+#   GnuPG key on the YubiKey's OpenPGP applet (scripts/setup-gpg-signing.ps1) — the key's
+#   Ed25519 public value as exported by `gpg --export-ssh-key <KEYID>!`, prefixed with "openpgp":
+#     openpgp ssh-ed25519 AAAAC3Nz... openpgp:0x0123456789ABCDEF (YubiKey OpenPGP)
+#
+#   FIDO2 SSH key (scripts/setup-yubikey.ps1; ssh-keygen -Y sign -n customerfd-release, touch + PIN):
+#     sk-ssh-ed25519@openssh.com AAAAGnNr... customerfd-release-approver (YubiKey)
+#
+# The signed statement names this product ("customerfd-release"), so an approval made for another
+# project with the same key is never accepted here. Plain software SSH keys are never accepted.
+# Keep e-mail addresses out of this file.
+openpgp ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJh30x3wfYCxaZamBHE0i2Gy7npw9+n0EJxR8i8UxjkY openpgp:0x411F3603EC032043 (YubiKey OpenPGP)

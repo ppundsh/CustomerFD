@@ -6,3 +6,5 @@
 .vs/
 .vscode/
 *.tgz
+# Private maintainer notes (release / YubiKey procedures) — never pushed
+/private/

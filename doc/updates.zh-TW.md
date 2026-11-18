@@ -80,52 +80,62 @@ https://github.com/ppundsh/CustomerFD/releases/latest/download/latest.json
 | 資源耗盡 | 清單 ≤ 64 KiB、安裝檔 ≤ 256 MiB；JSON 巢狀深度 ≤ 16 |
 | 未設定金鑰的建置 | `assets/updater.pub` 沒有金鑰時，更新功能停用並提示改從 GitHub 下載；CI 也會拒絕發行這種版本 |
 | 未經同意的安裝 | 自動檢查只會提示；下載與安裝都需要使用者按鈕並確認 |
-| GitHub 帳號或 CI 被入侵（選用防護） | 可再加上維護者 YubiKey 核准簽章，見第 6 節 |
+| GitHub 帳號、CI 或簽章私鑰外洩 | 另需維護者 YubiKey 對版本與安裝檔 SHA-256 的核准簽章，見第 4 節 |
 
 ---
 
-## 4. 發行者設定（一次性）
+## 4. YubiKey 發行核准（第二道簽章）
 
-1. **產生 minisign 金鑰**（建議設定密碼）：
+只靠 CI 的 minisign 私鑰時，GitHub 帳號、Actions 工作流程或 Secrets 任何一處被入侵，攻擊者都能推送「簽章正確」的惡意更新。因此從 0.3.2 起，更新器另外要求**維護者用 YubiKey 簽的核准**：
+
+| 層級 | 誰持有 | 證明什麼 |
+|---|---|---|
+| minisign 簽章（`.sig`） | GitHub `release` Environment 的 Secret | 安裝檔是 CI 建置出來的 |
+| YubiKey 核准（`latest.json` 的 `approval`） | 維護者的 YubiKey（私鑰無法匯出） | 維護者親自確認了**這個版本號＋這個安裝檔 SHA-256** |
+
+- 核准內容是固定格式的文字：`customerfd-release\nversion=<版本>\nsha256=<安裝檔 SHA-256>\n`。第一行是產品名稱，所以同一把 YubiKey 金鑰為其他專案（例如 cbxshell-rs）簽的核准，在這裡一律無效。
+- 更新器自行計算下載內容的 SHA-256 重組這段文字，用 `assets/release-approvers.pub` 裡的公鑰驗證。只要該檔有任何一把金鑰，從該原始碼建置的版本就**一定要**核准；沒有核准或核准無效時中止更新。
+- 標籤也必須用同一把 YubiKey 簽章（`git tag -s`）；`.githooks/pre-push` 會擋下未簽章的提交與標籤，CI 也會在建置前驗證標籤簽章。
+
+### 兩種 YubiKey 金鑰都可以
+
+| | GnuPG（OpenPGP 卡片，目前使用） | FIDO2 SSH 金鑰 |
+|---|---|---|
+| 適用 | 已用 `gpg --edit-key` › `keytocard` 把 Ed25519 金鑰放進 YubiKey | 用 `ssh-keygen -t ed25519-sk` 建立 |
+| 設定腳本 | `scripts\setup-gpg-signing.ps1` | `scripts\setup-yubikey.ps1` |
+| 核准簽章 | `gpg --detach-sign --armor`（SHA-256／SHA-512） | `ssh-keygen -Y sign -n customerfd-release` |
+| `release-approvers.pub` | `openpgp ssh-ed25519 AAAA… openpgp:0x…`（`gpg --export-ssh-key <KEYID>!` 的輸出，只有公開金鑰值，不含 email） | `sk-ssh-ed25519@openssh.com AAAA…` |
+| 觸碰證明 | 簽章本身無法證明觸碰；請用 `ykman openpgp keys set-touch sig on` 讓 YubiKey 每次簽章都要觸碰 | 簽章內含 UP／UV 旗標，更新器會檢查 |
+
+更新器依 `approval` 的格式（`BEGIN PGP SIGNATURE` 或 `BEGIN SSH SIGNATURE`）選擇驗證方式；兩者都只接受 Ed25519，且都必須是 `release-approvers.pub` 列出的金鑰。
+
+---
+
+## 5. 發行者設定（一次性）
+
+1. **YubiKey**：插上 YubiKey，執行 `scripts\setup-gpg-signing.ps1 -KeyId <KEYID>`。它不會建立或修改金鑰，只會設定這個 repo 的 `gpg.format=openpgp`、`gpg.program`、`user.signingkey`、commit／tag 一律簽章與 `pre-push` hook（`core.hooksPath=.githooks`），確認公開金鑰值已在 `assets/release-approvers.pub`，最後實際簽一次測試。使用 FIDO2 SSH 金鑰時改用 `scripts\setup-yubikey.ps1`。git 的 `user.email` 必須是金鑰使用者 ID 中、且已在 GitHub 驗證的 email，GitHub 才會顯示 Verified。
+2. **minisign 金鑰**（CI 用，建議設定密碼）：
 
    ```powershell
    npx @tauri-apps/cli@2 signer generate -w "$HOME\.tauri\customerfd.key"
    ```
 
-2. 把 `customerfd.key.pub` 的內容貼到 `assets/updater.pub`（保留檔案開頭的 `#` 說明行也可以），並提交。**私鑰不可提交**，請另外備份。
-3. **GitHub Secrets**：在 **Settings › Environments** 建立名為 `release` 的 Environment，勾選 **Required reviewers**（你自己），「Deployment branches and tags」限定 `v*` 標籤，再加入：
-   - `CFD_UPDATER_KEY`：私鑰檔案的**內容**
-   - `CFD_UPDATER_KEY_PASSWORD`：私鑰密碼（沒有就留空字串）
-4. 建議在 **Settings › Rules › Rulesets** 對 `refs/tags/v*` 限制只有管理員能建立或刪除標籤，對預設分支禁止 force push。
+   把 `customerfd.key.pub` 的內容貼到 `assets/updater.pub` 並提交。**私鑰不可提交**，請另外備份。
+3. **GitHub 儲存庫設定**：
+   - **Settings › Environments › `release`**：勾選 **Required reviewers**（自己），「Deployment branches and tags」限定 `v*` 標籤，Secrets 放 `CFD_UPDATER_KEY`（私鑰檔案的**內容**）與 `CFD_UPDATER_KEY_PASSWORD`（沒有密碼就留空字串）。同名的 Repository secrets 要刪掉，否則不受 Environment 保護。
+   - **Settings › Rules › Rulesets**：對 `refs/tags/v*` 限制只有管理員能建立／刪除／更新標籤；對預設分支開啟 **Require signed commits** 與禁止 force push。
+   - 帳號 **Settings › Password and authentication**：把 YubiKey 註冊為 Security key／Passkey，並移除簡訊等較弱的 2FA 方式。
 
-> 公鑰一旦隨版本發佈就不要直接更換：舊版控制中心只認得舊公鑰。必須更換時，先發行一個仍以舊金鑰簽署、但內含新公鑰的過渡版本。
+> 公鑰（minisign 或 YubiKey）一旦隨版本發佈就不要直接更換：舊版控制中心只認得舊公鑰。必須更換時，先發行一個「同時列出新舊金鑰、仍以舊金鑰簽署與核准」的過渡版本。
 
 ---
 
-## 5. 發行步驟
+## 6. 發行步驟
 
-1. `.\bump-version.ps1`（或 `.\bump-version.ps1 0.3.1 -Tag -Push`）更新 `Cargo.toml` 版本、提交並建立 `vX.Y.Z` 標籤。
-2. 推送標籤後 GitHub Actions 依序：確認標籤與版本一致 → 確認 `assets/updater.pub` 有公鑰 → 測試 → `build.ps1` → `release-manifest.ps1`（minisign 簽署＋`latest.json`）→ 發布 Release，附上 `CustomerFD-Setup.exe`、`.sig`、`latest.json`、原始碼 zip。
-3. 若 `release` Environment 設了 Required reviewers，需在 Actions 頁面按核准後才會取得私鑰。
-
-本機手動發行時：
-
-```powershell
-.\build.ps1
-$env:TAURI_SIGNING_PRIVATE_KEY = "$HOME\.tauri\customerfd.key"
-$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = '<密碼>'
-.\release-manifest.ps1 -Tag v0.3.1
-# 上傳 dist\CustomerFD-Setup.exe、CustomerFD-Setup.exe.sig、latest.json 到同名 Release
-```
+1. 插上 YubiKey，工作區乾淨、`.\run-checks.ps1` 通過後執行 `.\bump-version.ps1 patch -Push`：更新版本 → 簽章提交 → 簽章標籤 `vX.Y.Z`（並 `git verify-tag`）→ 推送分支與標籤（各需 YubiKey PIN／觸碰）。
+2. GitHub Actions 等你在網頁上 **Review deployments › Approve** 後，依序：驗證標籤是核准者簽的 → 標籤與版本一致 → `assets/updater.pub` 有公鑰 → 測試 → `build.ps1` → `release-manifest.ps1`（minisign 簽署＋`latest.json`）→ 建立**草稿** Release。草稿不會出現在 `releases/latest`，使用者收不到。
+3. 本機執行 `scripts\approve-release.ps1 -Tag vX.Y.Z`（需要 GitHub CLI：`winget install GitHub.cli`、`gh auth login`）：確認標籤簽章、下載草稿、核對版本與網址、顯示安裝檔 SHA-256 供確認，用 YubiKey 簽核准並在本機驗證、寫入 `latest.json`、上傳並發布。
 
 > `releases/latest/download/latest.json` 只會指向**最新的已發布正式版**；草稿與預覽版（prerelease）不會推送給使用者。
-
----
-
-## 6. 選用：YubiKey 發行核准（第二道簽章）
-
-更新器已內建 cbxshell-rs 的 YubiKey 核准驗證，目前因 `assets/release-approvers.pub` 沒有金鑰而停用。啟用後，即使 GitHub 帳號、Actions 或 minisign 私鑰外洩，也無法推送更新：
-
-- 把維護者的 `sk-ssh-ed25519@openssh.com` 公鑰（FIDO2，需 PIN＋觸碰）加入 `assets/release-approvers.pub`；只要有一把金鑰，從該原始碼建置的版本就**一定要**核准。
-- 核准內容：`customerfd-release\nversion=<版本>\nsha256=<安裝檔 SHA-256>\n`，以 `ssh-keygen -Y sign -n customerfd-release` 簽署，放進 `latest.json` 的 `approval` 欄位。
-- 發行流程需改成「CI 建立草稿 → 本機用 YubiKey 簽核准 → 發布」，可參考 cbxshell-rs 的 `scripts/approve-release.ps1` 與 `doc/updates.zh-TW.md` 第 4–6 節。
+>
+> 0.3.1 以前的版本沒有內建核准金鑰，只檢查 minisign 簽章，所以仍能更新到 0.3.2；從 0.3.2 起，**每一次**發行都必須經過第 3 步，沒有核准的版本使用者裝不上去。
