@@ -321,36 +321,69 @@ pub fn notify_explorer_refresh() {
     }
 }
 
+/// Restarts the Windows shell (taskbar + Explorer) so a newly installed `cfd_shell.dll` is loaded.
+///
+/// The shell counts as running when its taskbar window (`Shell_TrayWnd`) exists; checking for any
+/// `explorer.exe` process is not enough, because folder windows may live in separate processes.
 pub fn restart_explorer() -> Result<(), String> {
     use std::os::windows::process::CommandExt;
     use std::process::Command;
+    use std::time::{Duration, Instant};
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let explorer_running = || {
-        Command::new("tasklist")
-            .args(["/FI", "IMAGENAME eq explorer.exe", "/NH"])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .map(|o| {
-                String::from_utf8_lossy(&o.stdout)
-                    .to_ascii_lowercase()
-                    .contains("explorer.exe")
-            })
+
+    fn shell_running() -> bool {
+        let class = to_wide("Shell_TrayWnd");
+        // SAFETY: window lookup by class name with a NUL-terminated string.
+        unsafe {
+            windows::Win32::UI::WindowsAndMessaging::FindWindowW(
+                PCWSTR(class.as_ptr()),
+                PCWSTR::null(),
+            )
+            .map(|h| !h.is_invalid())
             .unwrap_or(false)
-    };
-    let _ = Command::new("taskkill")
-        .args(["/F", "/IM", "explorer.exe"])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output();
-    // Windows usually restarts the shell by itself (AutoRestartShell); only start it when it
-    // has not come back, otherwise a stray File Explorer window would open.
-    for _ in 0..15 {
-        std::thread::sleep(std::time::Duration::from_millis(200));
-        if explorer_running() {
-            return Ok(());
         }
     }
-    Command::new("explorer.exe")
-        .spawn()
-        .map_err(|e| format!("Failed to launch explorer.exe: {e}"))?;
+    fn wait_for(want_running: bool, timeout: Duration) -> bool {
+        let start = Instant::now();
+        while start.elapsed() < timeout {
+            if shell_running() == want_running {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        shell_running() == want_running
+    }
+
+    let sys_root = std::path::PathBuf::from(
+        std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into()),
+    );
+    let sys32 = sys_root.join("System32");
+    let out = Command::new(sys32.join("taskkill.exe"))
+        .args(["/F", "/IM", "explorer.exe"])
+        .current_dir(&sys32)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("taskkill: {e}"))?;
+    if !out.status.success() && shell_running() {
+        return Err(format!(
+            "taskkill failed ({})",
+            out.status.code().unwrap_or(-1)
+        ));
+    }
+    // Wait until the old taskbar is gone, then give Windows a moment to restart the shell by
+    // itself (AutoRestartShell); start it ourselves if it does not come back.
+    wait_for(false, Duration::from_secs(3));
+    if !wait_for(true, Duration::from_millis(1500)) {
+        Command::new(sys_root.join("explorer.exe"))
+            .current_dir(&sys_root)
+            .spawn()
+            .map_err(|e| format!("explorer.exe: {e}"))?;
+        if !wait_for(true, Duration::from_secs(10)) {
+            return Err(
+                "Explorer did not come back; start explorer.exe from Task Manager (Run new task)."
+                    .into(),
+            );
+        }
+    }
     Ok(())
 }
