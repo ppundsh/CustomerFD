@@ -5,6 +5,8 @@ edition.workspace = true
 license.workspace = true
 description = "Per-user installer, uninstaller and in-place updater for CustomerFD"
 
+build = "build.rs"
+
 [[bin]]
 name = "cfd-installer"
 path = "src/main.rs"

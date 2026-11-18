@@ -6,11 +6,13 @@ use windows::Win32::Foundation::{COLORREF, RECT, SIZE};
 use windows::Win32::Graphics::Gdi::{
     CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW, EnumFontFamiliesExW,
     FillRect, GetTextExtentPoint32W, LineTo, MoveToEx, RoundRect, SelectObject, SetBkMode,
-    SetTextColor, CLEARTYPE_QUALITY, DEFAULT_CHARSET, DEFAULT_PITCH, DRAW_TEXT_FORMAT,
-    DT_CALCRECT, DT_NOPREFIX, DT_SINGLELINE, FF_DONTCARE, FW_NORMAL, FW_SEMIBOLD, HDC, HFONT,
-    LOGFONTW, PS_SOLID, TEXTMETRICW, TRANSPARENT,
+    SetTextColor, CLEARTYPE_QUALITY, DEFAULT_CHARSET, DEFAULT_PITCH, DRAW_TEXT_FORMAT, DT_CALCRECT,
+    DT_NOPREFIX, DT_SINGLELINE, FF_DONTCARE, FW_NORMAL, FW_SEMIBOLD, HDC, HFONT, LOGFONTW,
+    PS_SOLID, TEXTMETRICW, TRANSPARENT,
 };
-use windows::Win32::UI::Controls::{DrawThemeTextEx, DTTOPTS, DTT_COMPOSITED, DTT_TEXTCOLOR, HTHEME};
+use windows::Win32::UI::Controls::{
+    DrawThemeTextEx, DTTOPTS, DTT_COMPOSITED, DTT_TEXTCOLOR, HTHEME,
+};
 
 /// Body text face; falls back to "Segoe UI" where Segoe UI Variable is missing (Windows 10).
 pub const UI_FACE: &str = "Segoe UI Variable Text";
@@ -31,7 +33,10 @@ unsafe extern "system" fn font_exists_cb(
 
 /// True when a font family with this name is installed.
 pub fn font_installed(hdc: HDC, face: &str) -> bool {
-    let mut lf = LOGFONTW { lfCharSet: DEFAULT_CHARSET, ..Default::default() };
+    let mut lf = LOGFONTW {
+        lfCharSet: DEFAULT_CHARSET,
+        ..Default::default()
+    };
     let w: Vec<u16> = face.encode_utf16().collect();
     let n = w.len().min(31);
     lf.lfFaceName[..n].copy_from_slice(&w[..n]);
@@ -80,8 +85,16 @@ static FACES: std::sync::OnceLock<(&'static str, &'static str)> = std::sync::Onc
 pub fn faces(hdc: HDC) -> (&'static str, &'static str) {
     *FACES.get_or_init(|| {
         (
-            if font_installed(hdc, UI_FACE) { UI_FACE } else { UI_FACE_FALLBACK },
-            if font_installed(hdc, ICON_FACE) { ICON_FACE } else { ICON_FACE_FALLBACK },
+            if font_installed(hdc, UI_FACE) {
+                UI_FACE
+            } else {
+                UI_FACE_FALLBACK
+            },
+            if font_installed(hdc, ICON_FACE) {
+                ICON_FACE
+            } else {
+                ICON_FACE_FALLBACK
+            },
         )
     })
 }
@@ -130,7 +143,15 @@ impl Drop for Fonts {
     fn drop(&mut self) {
         // SAFETY: each font was created by `Fonts::new` and is deleted exactly once.
         unsafe {
-            for f in [self.hero, self.title, self.card, self.body, self.small, self.icon, self.icon_small] {
+            for f in [
+                self.hero,
+                self.title,
+                self.card,
+                self.body,
+                self.small,
+                self.icon,
+                self.icon_small,
+            ] {
                 if !f.is_invalid() {
                     let _ = DeleteObject(f);
                 }
@@ -140,7 +161,14 @@ impl Drop for Fonts {
 }
 
 /// Plain GDI text (opaque surfaces only: GDI leaves alpha at 0).
-pub unsafe fn draw_text(hdc: HDC, text: &str, rc: &RECT, color: u32, font: HFONT, flags: DRAW_TEXT_FORMAT) {
+pub unsafe fn draw_text(
+    hdc: HDC,
+    text: &str,
+    rc: &RECT,
+    color: u32,
+    font: HFONT,
+    flags: DRAW_TEXT_FORMAT,
+) {
     if text.is_empty() {
         return;
     }
@@ -177,7 +205,17 @@ pub unsafe fn draw_text_composited(
             crText: COLORREF(color),
             ..Default::default()
         };
-        done = DrawThemeTextEx(htheme, hdc, 0, 0, &w, flags | DT_NOPREFIX, &mut r, Some(&opts)).is_ok();
+        done = DrawThemeTextEx(
+            htheme,
+            hdc,
+            0,
+            0,
+            &w,
+            flags | DT_NOPREFIX,
+            &mut r,
+            Some(&opts),
+        )
+        .is_ok();
     }
     SelectObject(hdc, old);
     if !done {
@@ -205,7 +243,12 @@ pub unsafe fn text_height_wrapped(hdc: HDC, text: &str, font: HFONT, width: i32)
     }
     let old = SelectObject(hdc, font);
     let mut w: Vec<u16> = text.encode_utf16().collect();
-    let mut r = RECT { left: 0, top: 0, right: width.max(1), bottom: 0 };
+    let mut r = RECT {
+        left: 0,
+        top: 0,
+        right: width.max(1),
+        bottom: 0,
+    };
     DrawTextW(
         hdc,
         &mut w,
@@ -221,7 +264,12 @@ pub unsafe fn text_width_calc(hdc: HDC, text: &str, font: HFONT) -> i32 {
     let old = SelectObject(hdc, font);
     let mut w: Vec<u16> = text.encode_utf16().collect();
     let mut r = RECT::default();
-    DrawTextW(hdc, &mut w, &mut r, DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX);
+    DrawTextW(
+        hdc,
+        &mut w,
+        &mut r,
+        DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX,
+    );
     SelectObject(hdc, old);
     r.right - r.left
 }
@@ -232,7 +280,9 @@ pub unsafe fn round_box(hdc: HDC, rc: &RECT, diameter: i32, fill: u32, border: u
     let pen = CreatePen(PS_SOLID, 1, COLORREF(border));
     let ob = SelectObject(hdc, brush);
     let op = SelectObject(hdc, pen);
-    let _ = RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, diameter, diameter);
+    let _ = RoundRect(
+        hdc, rc.left, rc.top, rc.right, rc.bottom, diameter, diameter,
+    );
     SelectObject(hdc, ob);
     SelectObject(hdc, op);
     let _ = DeleteObject(brush);
@@ -265,7 +315,12 @@ pub unsafe fn vline(hdc: HDC, x: i32, y1: i32, y2: i32, color: u32) {
 
 #[inline]
 pub fn rect(x: i32, y: i32, w: i32, h: i32) -> RECT {
-    RECT { left: x, top: y, right: x + w, bottom: y + h }
+    RECT {
+        left: x,
+        top: y,
+        right: x + w,
+        bottom: y + h,
+    }
 }
 
 #[inline]

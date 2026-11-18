@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    # Put the signing-key secrets in a "release" environment with required reviewers so every
+    # release waits for your approval before the key is handed to the job.
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Verify tag matches Cargo version
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"(.+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          if ("v$v" -ne "${{ github.ref_name }}") { throw "Tag ${{ github.ref_name }} != Cargo version v$v" }
+
+      - name: Verify the update signing public key is committed
+        shell: pwsh
+        run: |
+          $key = Get-Content assets/updater.pub | Where-Object { $_ -and -not $_.StartsWith('#') -and -not $_.StartsWith('untrusted comment:') }
+          if (-not $key) { throw 'assets/updater.pub has no public key: this build could never update itself. See doc/updates.md.' }
+
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run workspace unit tests
+        run: cargo test --workspace -- --test-threads=1
+
+      - name: Build & package installer
+        shell: pwsh
+        run: .\build.ps1
+
+      - name: Create buildable source archive
+        shell: pwsh
+        run: git archive --format=zip --output="dist/CustomerFD-Source.zip" HEAD
+
+      - name: Sign installer & write latest.json
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.CFD_UPDATER_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.CFD_UPDATER_KEY_PASSWORD }}
+        run: .\release-manifest.ps1 -Tag "${{ github.ref_name }}"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/CustomerFD-Setup.exe
+            dist/CustomerFD-Setup.exe.sig
+            dist/latest.json
+            dist/CustomerFD-Source.zip
+          generate_release_notes: true

@@ -1,13 +1,21 @@
-$ErrorActionPreference = "Stop"
+﻿#Requires -Version 5.1
+<#
+.SYNOPSIS
+    Development deploy: build, install silently for the current user, open the control center.
+.DESCRIPTION
+    Installs to %LOCALAPPDATA%\Programs\CustomerFD exactly like the published installer
+    (per user, no UAC). Settings in %LOCALAPPDATA%\CustomerFD are kept.
+#>
+$ErrorActionPreference = 'Stop'
+$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-& (Join-Path $PSScriptRoot "build.ps1")
+& (Join-Path $Root "build.ps1")
 
-$distDir = Join-Path $PSScriptRoot "dist"
-$dllPath = Join-Path $distDir "cfd_shell.dll"
-$exePath = Join-Path $distDir "cfd-manager.exe"
+$setup = Join-Path $Root "dist\CustomerFD-Setup.exe"
+Write-Host "==> Installing for the current user..." -ForegroundColor Cyan
+$p = Start-Process $setup -ArgumentList "--quiet" -Wait -PassThru
+if ($p.ExitCode -ne 0) { throw "Installer failed ($($p.ExitCode))" }
 
-Write-Host "Registering cfd_shell.dll (per-user HKCU)..." -ForegroundColor Cyan
-regsvr32.exe /s $dllPath
-
-Write-Host "Launching CustomerFD Control Center..." -ForegroundColor Cyan
-Start-Process $exePath
+$exe = Join-Path $env:LOCALAPPDATA "Programs\CustomerFD\cfd-manager.exe"
+Write-Host "==> Launching $exe" -ForegroundColor Cyan
+Start-Process $exe

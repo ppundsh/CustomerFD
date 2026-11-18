@@ -1,6 +1,6 @@
 # CustomerFD 改版計劃：UI/UX 對齊 cbxshell-rs ＋ 版本檢查與自動更新
 
-> 狀態：草案（2026-11-18）。已確定的決策見第 3 節。
+> 狀態：0.2.0（UI 對齊）與 0.3.0（安裝、更新、發行、文件）已一併實作於 v0.3.0（2026-11-18）。待辦見第 4 節。決策見第 3 節。
 
 ## 0. 現況與差距
 
@@ -110,3 +110,10 @@ DwmExtendFrame、`DrawThemeTextEx`、反鋸齒元件與雙主題，但和 cbxshe
 | 視窗尺寸 | 1040 × 760，最小 880 × 620 | 預設 |
 | 多語系 | 維持 `tr()` | 預設 |
 | 安裝程式 | 需要（就地更新依賴它） | 預設 |
+
+## 4. 實作後待辦
+
+- [ ] 在 Windows 上執行 `run-checks.ps1`（Linux 只做過 Windows 目標的型別檢查與 clippy）。
+- [ ] 產生 minisign 金鑰、把公鑰放進 `assets/updater.pub`、設定 GitHub `release` Environment 與 Secrets（見 `doc/updates.zh-TW.md` 第 4 節）。
+- [ ] 截圖：`doc/images/control-center.zh-TW.png`、`control-center.en.png`、`explorer-sidebar.png`。
+- [ ] 建立 GitHub 儲存庫並推送，發行 v0.3.0；再以 v0.3.1 實測線上更新（含竄改安裝檔、降版清單應被拒絕）。

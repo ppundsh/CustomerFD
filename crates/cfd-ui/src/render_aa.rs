@@ -1,5 +1,7 @@
 //! Anti-aliased (signed-distance-field) primitives drawn through premultiplied BGRA buffers.
 
+#![allow(clippy::too_many_arguments)]
+
 use std::ffi::c_void;
 use windows::Win32::Graphics::Gdi::{
     AlphaBlend, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, SelectObject,
@@ -325,7 +327,7 @@ pub unsafe fn fill_content_panel_aa(
         ((bd_rgb >> 8) & 0xFF) as f32,
         (bd_rgb & 0xFF) as f32,
     );
-    let opaque_bg = 0xFF00_0000 | ((bg_rgb & 0xFF) << 0) | (bg_rgb & 0xFF00) | (bg_rgb & 0xFF_0000);
+    let opaque_bg = 0xFF00_0000 | (bg_rgb & 0xFF) | (bg_rgb & 0xFF00) | (bg_rgb & 0xFF_0000);
     let opaque_bd = 0xFF00_0000 | bd_rgb;
     let r = radius.max(1) as f32;
     let corner_x = (sidebar_w + radius).min(buf_w);
@@ -562,17 +564,11 @@ pub unsafe fn draw_aa_checkbox(
 
             if drawn_len > 0.01 {
                 let end1_t = (drawn_len / l1).clamp(0.0, 1.0);
-                let end1 = (
-                    p0.0 + (p1.0 - p0.0) * end1_t,
-                    p0.1 + (p1.1 - p0.1) * end1_t,
-                );
+                let end1 = (p0.0 + (p1.0 - p0.0) * end1_t, p0.1 + (p1.1 - p0.1) * end1_t);
                 let mut md = dist_point_to_segment(cx, cy, p0.0, p0.1, end1.0, end1.1);
                 if drawn_len > l1 {
                     let end2_t = ((drawn_len - l1) / l2).clamp(0.0, 1.0);
-                    let end2 = (
-                        p1.0 + (p2.0 - p1.0) * end2_t,
-                        p1.1 + (p2.1 - p1.1) * end2_t,
-                    );
+                    let end2 = (p1.0 + (p2.0 - p1.0) * end2_t, p1.1 + (p2.1 - p1.1) * end2_t);
                     md = md.min(dist_point_to_segment(cx, cy, p1.0, p1.1, end2.0, end2.1));
                 }
                 let mark_cov = ((stroke_r + 0.5 - md) / 1.0).clamp(0.0, 1.0);
@@ -598,5 +594,3 @@ pub unsafe fn draw_aa_checkbox(
 
     blend_bgra_to_hdc(hdc, x, y, size, size, &buf);
 }
-
-

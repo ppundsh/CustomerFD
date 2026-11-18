@@ -5,7 +5,9 @@ use std::ffi::c_void;
 use std::mem::ManuallyDrop;
 use std::path::Path;
 use std::sync::Mutex;
-use windows::core::{implement, ComObject, Error, IUnknownImpl, Interface, Result, GUID, HRESULT, PCWSTR};
+use windows::core::{
+    implement, ComObject, Error, IUnknownImpl, Interface, Result, GUID, HRESULT, PCWSTR,
+};
 use windows::Win32::Foundation::{
     E_FAIL, E_INVALIDARG, E_NOINTERFACE, E_NOTIMPL, E_POINTER, HWND, S_OK,
 };
@@ -14,8 +16,8 @@ use windows::Win32::UI::Shell::Common::{ITEMIDLIST, STRRET, STRRET_0, STRRET_WST
 use windows::Win32::UI::Shell::{
     IDefaultExtractIconInit, IEnumIDList, IExtractIconW, IPersistFolder, IPersistFolder2,
     IPersistFolder2_Impl, IPersistFolder_Impl, IShellFolder, IShellFolder_Impl, IShellView,
-    SHCONTF_FOLDERS, SHCreateDefaultExtractIcon, SHCreateShellFolderView, SHGDN_FORPARSING,
-    SHGDN_INFOLDER, SHGetDesktopFolder, SFV_CREATE,
+    SHCreateDefaultExtractIcon, SHCreateShellFolderView, SHGetDesktopFolder, SFV_CREATE,
+    SHCONTF_FOLDERS, SHGDN_FORPARSING, SHGDN_INFOLDER,
 };
 
 const SFGAO_CANCOPY: u32 = 0x0000_0001;
@@ -194,7 +196,7 @@ impl IShellFolder_Impl for VirtualRootFolder_Impl {
             return Ok(());
         }
         if let Ok(root_sf) = unsafe { self.bind_root_target_folder() } {
-            let pbc_raw = pbc.map(|b| b.as_raw()).unwrap_or(std::ptr::null_mut());
+            let pbc_raw = pbc.map(|b| b.as_raw()).unwrap_or_default();
             let hr = unsafe {
                 (Interface::vtable(&root_sf).ParseDisplayName)(
                     Interface::as_raw(&root_sf),
@@ -267,7 +269,7 @@ impl IShellFolder_Impl for VirtualRootFolder_Impl {
             if unsafe { il_is_empty(rest) } {
                 unsafe { target_sf.query(riid, ppv).ok() }
             } else {
-                let pbc_raw = pbc.map(|b| b.as_raw()).unwrap_or(std::ptr::null_mut());
+                let pbc_raw = pbc.map(|b| b.as_raw()).unwrap_or_default();
                 let hr = unsafe {
                     (Interface::vtable(&target_sf).BindToObject)(
                         Interface::as_raw(&target_sf),
@@ -280,7 +282,7 @@ impl IShellFolder_Impl for VirtualRootFolder_Impl {
                 hr.ok()
             }
         } else if let Ok(root_sf) = unsafe { self.bind_root_target_folder() } {
-            let pbc_raw = pbc.map(|b| b.as_raw()).unwrap_or(std::ptr::null_mut());
+            let pbc_raw = pbc.map(|b| b.as_raw()).unwrap_or_default();
             let hr = unsafe {
                 (Interface::vtable(&root_sf).BindToObject)(
                     Interface::as_raw(&root_sf),
@@ -333,8 +335,16 @@ impl IShellFolder_Impl for VirtualRootFolder_Impl {
                     return S_OK;
                 }
                 let cfg = AppConfig::load();
-                let idx1 = cfg.subfolders.iter().position(|e| e.id == a).unwrap_or(usize::MAX);
-                let idx2 = cfg.subfolders.iter().position(|e| e.id == b).unwrap_or(usize::MAX);
+                let idx1 = cfg
+                    .subfolders
+                    .iter()
+                    .position(|e| e.id == a)
+                    .unwrap_or(usize::MAX);
+                let idx2 = cfg
+                    .subfolders
+                    .iter()
+                    .position(|e| e.id == b)
+                    .unwrap_or(usize::MAX);
                 if idx1 < idx2 {
                     HRESULT(0x0000_FFFFu32 as i32)
                 } else if idx1 > idx2 {

@@ -23,7 +23,13 @@ pub fn import_image_as_ico(src_path: &Path) -> Result<PathBuf, String> {
         .unwrap_or("custom_icon");
     let sanitized: String = stem
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let mut dest = dir.join(format!("{sanitized}.ico"));
     let mut idx = 1usize;
@@ -85,7 +91,9 @@ pub fn load_icon_preview_bgra(path: &Path, size: u32) -> Option<Vec<u8>> {
         return None;
     }
     let img = image::open(path).ok()?;
-    let resized = img.resize_exact(size, size, FilterType::Lanczos3).to_rgba8();
+    let resized = img
+        .resize_exact(size, size, FilterType::Lanczos3)
+        .to_rgba8();
     let mut bgra = vec![0u8; (size * size * 4) as usize];
     for (i, px) in resized.pixels().enumerate() {
         let [r, g, b, a] = px.0;

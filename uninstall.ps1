@@ -1,3 +1,8 @@
+﻿<#
+.SYNOPSIS
+    Developer cleanup: removes every CustomerFD registry entry (all 64 reserved CLSIDs) and the
+    settings folder. End users should uninstall from Settings > Apps > Installed apps instead.
+#>
 $ErrorActionPreference = "SilentlyContinue"
 
 Write-Host "Cleaning up CustomerFD registry entries and settings..." -ForegroundColor Cyan

@@ -1,7 +1,4 @@
-use crate::config::{
-    config_dir, to_wide, AppConfig, RootFolderEntry,
-    CLSID_CUSTOMERFD_STR,
-};
+use crate::config::{config_dir, to_wide, AppConfig, RootFolderEntry, CLSID_CUSTOMERFD_STR};
 use std::path::{Path, PathBuf};
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::ERROR_SUCCESS;
@@ -12,11 +9,16 @@ use windows::Win32::System::Registry::{
     REG_OPTION_NON_VOLATILE, REG_SZ,
 };
 use windows::Win32::UI::Shell::{
-    FOLDERID_Desktop, SHChangeNotify, SHGetKnownFolderIDList, SHCNE_ASSOCCHANGED,
-    SHCNE_UPDATEDIR, SHCNF_FLUSH, SHCNF_IDLIST,
+    FOLDERID_Desktop, SHChangeNotify, SHGetKnownFolderIDList, SHCNE_ASSOCCHANGED, SHCNE_UPDATEDIR,
+    SHCNF_FLUSH, SHCNF_IDLIST,
 };
 
-pub fn write_reg_sz(root: HKEY, subkey: &str, name: Option<&str>, value: &str) -> Result<(), String> {
+pub fn write_reg_sz(
+    root: HKEY,
+    subkey: &str,
+    name: Option<&str>,
+    value: &str,
+) -> Result<(), String> {
     let subkey_w = to_wide(subkey);
     let mut hkey = HKEY::default();
     let status = unsafe {
@@ -43,8 +45,7 @@ pub fn write_reg_sz(root: HKEY, subkey: &str, name: Option<&str>, value: &str) -
         .map(|w| PCWSTR(w.as_ptr()))
         .unwrap_or(PCWSTR::null());
 
-    let bytes =
-        unsafe { std::slice::from_raw_parts(val_w.as_ptr().cast::<u8>(), val_w.len() * 2) };
+    let bytes = unsafe { std::slice::from_raw_parts(val_w.as_ptr().cast::<u8>(), val_w.len() * 2) };
     let res = unsafe { RegSetValueExW(hkey, name_ptr, 0, REG_SZ, Some(bytes)) };
     unsafe {
         let _ = RegCloseKey(hkey);
@@ -77,20 +78,15 @@ pub fn write_reg_dword(root: HKEY, subkey: &str, name: &str, value: u32) -> Resu
 
     let name_w = to_wide(name);
     let bytes = value.to_le_bytes();
-    let res = unsafe {
-        RegSetValueExW(
-            hkey,
-            PCWSTR(name_w.as_ptr()),
-            0,
-            REG_DWORD,
-            Some(&bytes),
-        )
-    };
+    let res = unsafe { RegSetValueExW(hkey, PCWSTR(name_w.as_ptr()), 0, REG_DWORD, Some(&bytes)) };
     unsafe {
         let _ = RegCloseKey(hkey);
     }
     if res != ERROR_SUCCESS {
-        return Err(format!("RegSetValueExW({subkey}\\{name}) failed: {:?}", res));
+        return Err(format!(
+            "RegSetValueExW({subkey}\\{name}) failed: {:?}",
+            res
+        ));
     }
     Ok(())
 }
@@ -167,7 +163,9 @@ pub fn find_shell_dll() -> Option<PathBuf> {
 
 pub fn is_registered() -> bool {
     let cfg = AppConfig::load();
-    cfg.root_folders.iter().any(|r| is_clsid_registered(&r.clsid))
+    cfg.root_folders
+        .iter()
+        .any(|r| is_clsid_registered(&r.clsid))
 }
 
 fn is_clsid_registered(clsid: &str) -> bool {
@@ -332,7 +330,11 @@ pub fn restart_explorer() -> Result<(), String> {
             .args(["/FI", "IMAGENAME eq explorer.exe", "/NH"])
             .creation_flags(CREATE_NO_WINDOW)
             .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).to_ascii_lowercase().contains("explorer.exe"))
+            .map(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .to_ascii_lowercase()
+                    .contains("explorer.exe")
+            })
             .unwrap_or(false)
     };
     let _ = Command::new("taskkill")

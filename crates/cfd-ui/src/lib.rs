@@ -4,6 +4,8 @@
 //! scaled with [`scale`], tokens from [`theme`], anti-aliased shapes from [`render_aa`], the
 //! translucent back buffer in [`dib`], and the Mica / Acrylic backdrop in [`backdrop`].
 
+#![allow(clippy::missing_safety_doc)] // drawing helpers: callers pass valid DCs / buffers
+
 pub mod anim;
 pub mod backdrop;
 pub mod dib;

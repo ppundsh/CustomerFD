@@ -43,9 +43,10 @@ pub fn windows_build_number() -> u32 {
         let Ok(ntdll) = GetModuleHandleW(w!("ntdll.dll")) else {
             return 0;
         };
-        let Some(proc) =
-            windows::Win32::System::LibraryLoader::GetProcAddress(ntdll, windows::core::s!("RtlGetVersion"))
-        else {
+        let Some(proc) = windows::Win32::System::LibraryLoader::GetProcAddress(
+            ntdll,
+            windows::core::s!("RtlGetVersion"),
+        ) else {
             return 0;
         };
         let f: RtlGetVersionFn = std::mem::transmute(proc);
@@ -81,7 +82,8 @@ unsafe fn apply_legacy_acrylic(hwnd: HWND, dark: bool) -> bool {
         pv_data: *mut std::ffi::c_void,
         cb_data: usize,
     }
-    type SwcaFn = unsafe extern "system" fn(HWND, *mut WinCompAttrData) -> windows::Win32::Foundation::BOOL;
+    type SwcaFn =
+        unsafe extern "system" fn(HWND, *mut WinCompAttrData) -> windows::Win32::Foundation::BOOL;
     const WCA_ACCENT_POLICY: u32 = 19;
     const ACCENT_ENABLE_ACRYLICBLURBEHIND: u32 = 4;
 
@@ -119,25 +121,27 @@ pub fn apply_frosted_backdrop(hwnd: HWND) {
         let build = windows_build_number();
         // SAFETY: Win32/DWM calls on our own top-level window with correctly sized arguments.
         unsafe {
-            if build >= 22621
+            let mica_22h2 = build >= 22621
                 && DwmSetWindowAttribute(
                     hwnd,
                     DWMWA_SYSTEMBACKDROP_TYPE,
                     &FROSTED_BACKDROP_TYPE as *const _ as _,
                     4,
                 )
-                .is_ok()
-            {
-                true
-            } else if build >= 22000
-                && DwmSetWindowAttribute(
-                    hwnd,
-                    windows::Win32::Graphics::Dwm::DWMWINDOWATTRIBUTE(DWMWA_MICA_EFFECT_21H2 as i32),
-                    &1i32 as *const _ as _,
-                    4,
-                )
-                .is_ok()
-            {
+                .is_ok();
+            let mica_21h2 = || {
+                build >= 22000
+                    && DwmSetWindowAttribute(
+                        hwnd,
+                        windows::Win32::Graphics::Dwm::DWMWINDOWATTRIBUTE(
+                            DWMWA_MICA_EFFECT_21H2 as i32,
+                        ),
+                        &1i32 as *const _ as _,
+                        4,
+                    )
+                    .is_ok()
+            };
+            if mica_22h2 || mica_21h2() {
                 true
             } else if build >= 17134 {
                 apply_legacy_acrylic(hwnd, crate::theme::is_dark())
@@ -148,4 +152,3 @@ pub fn apply_frosted_backdrop(hwnd: HWND) {
     };
     BACKDROP_ACTIVE.store(active, Ordering::Release);
 }
-

@@ -30,12 +30,7 @@ impl VirtualEnumIDList {
 }
 
 impl IEnumIDList_Impl for VirtualEnumIDList_Impl {
-    fn Next(
-        &self,
-        celt: u32,
-        rgelt: *mut *mut ITEMIDLIST,
-        pceltfetched: *mut u32,
-    ) -> HRESULT {
+    fn Next(&self, celt: u32, rgelt: *mut *mut ITEMIDLIST, pceltfetched: *mut u32) -> HRESULT {
         if rgelt.is_null() {
             return E_INVALIDARG;
         }

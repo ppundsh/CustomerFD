@@ -23,7 +23,11 @@ static ACCENT_DARK2_RGB: AtomicU32 = AtomicU32::new(0x0000_4578);
 pub fn lerp_rgb(c1: u32, c2: u32, t: f32) -> u32 {
     let t = t.clamp(0.0, 1.0);
     let ch = |c: u32, s: u32| ((c >> s) & 0xFF) as f32;
-    let mix = |s: u32| (ch(c1, s) + (ch(c2, s) - ch(c1, s)) * t).round().clamp(0.0, 255.0) as u32;
+    let mix = |s: u32| {
+        (ch(c1, s) + (ch(c2, s) - ch(c1, s)) * t)
+            .round()
+            .clamp(0.0, 255.0) as u32
+    };
     (mix(16) << 16) | (mix(8) << 8) | mix(0)
 }
 

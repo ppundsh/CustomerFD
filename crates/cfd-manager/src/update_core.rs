@@ -155,19 +155,27 @@ impl<'a> JsonParser<'a> {
             Some(c) if c == b'-' || c.is_ascii_digit() => {
                 let start = self.i;
                 while self.i < self.b.len()
-                    && matches!(self.b[self.i], b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9')
+                    && matches!(
+                        self.b[self.i],
+                        b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9'
+                    )
                 {
                     self.i += 1;
                 }
                 let s = std::str::from_utf8(&self.b[start..self.i]).map_err(|e| e.to_string())?;
-                s.parse::<f64>().map(Json::Num).map_err(|e| format!("JSON number: {e}"))
+                s.parse::<f64>()
+                    .map(Json::Num)
+                    .map_err(|e| format!("JSON number: {e}"))
             }
             _ => Err(format!("JSON: unexpected input at {}", self.i)),
         }
     }
 
     fn hex4(&mut self) -> Result<u32, String> {
-        let h = self.b.get(self.i..self.i + 4).ok_or("JSON: short \\u escape")?;
+        let h = self
+            .b
+            .get(self.i..self.i + 4)
+            .ok_or("JSON: short \\u escape")?;
         let s = std::str::from_utf8(h).map_err(|e| e.to_string())?;
         self.i += 4;
         u32::from_str_radix(s, 16).map_err(|e| e.to_string())
@@ -208,7 +216,9 @@ impl<'a> JsonParser<'a> {
                         b't' => out.push('\t'),
                         b'u' => {
                             let mut cp = self.hex4()?;
-                            if (0xD800..0xDC00).contains(&cp) && self.b[self.i..].starts_with(b"\\u") {
+                            if (0xD800..0xDC00).contains(&cp)
+                                && self.b[self.i..].starts_with(b"\\u")
+                            {
                                 self.i += 2;
                                 let lo = self.hex4()?;
                                 if (0xDC00..0xE000).contains(&lo) {
@@ -227,7 +237,10 @@ impl<'a> JsonParser<'a> {
 }
 
 pub fn parse_json(text: &str) -> Result<Json, String> {
-    let mut p = JsonParser { b: text.trim_start_matches('\u{feff}').as_bytes(), i: 0 };
+    let mut p = JsonParser {
+        b: text.trim_start_matches('\u{feff}').as_bytes(),
+        i: 0,
+    };
     let v = p.value(0)?;
     p.ws();
     if p.i != p.b.len() {
@@ -289,7 +302,10 @@ pub fn unwrap_minisign_text(s: &str) -> Option<String> {
         return Some(t.to_string());
     }
     let decoded = String::from_utf8(base64_decode(t)?).ok()?;
-    decoded.trim_start().starts_with("untrusted comment:").then(|| decoded.trim().to_string())
+    decoded
+        .trim_start()
+        .starts_with("untrusted comment:")
+        .then(|| decoded.trim().to_string())
 }
 
 /// Extracts the base64 key line (`RW…`) from `assets/updater.pub`.
@@ -337,7 +353,9 @@ pub fn parse_version(v: &str) -> Option<((u64, u64, u64), bool)> {
 /// True when `candidate` is strictly newer than `current`. A pre-release is older than the
 /// release with the same number. Unparseable versions are never "newer".
 pub fn is_newer(candidate: &str, current: &str) -> bool {
-    let (Some((c, c_pre)), Some((cur, cur_pre))) = (parse_version(candidate), parse_version(current)) else {
+    let (Some((c, c_pre)), Some((cur, cur_pre))) =
+        (parse_version(candidate), parse_version(current))
+    else {
         return false;
     };
     c > cur || (c == cur && cur_pre && !c_pre)
@@ -381,7 +399,8 @@ const K256: [u32; 64] = [
 
 pub fn sha256(data: &[u8]) -> [u8; 32] {
     let mut h: [u32; 8] = [
-        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+        0x5be0cd19,
     ];
     let mut msg = data.to_vec();
     let bit_len = (data.len() as u64).wrapping_mul(8);
@@ -393,18 +412,30 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
     for block in msg.chunks(64) {
         let mut w = [0u32; 64];
         for i in 0..16 {
-            w[i] = u32::from_be_bytes([block[4 * i], block[4 * i + 1], block[4 * i + 2], block[4 * i + 3]]);
+            w[i] = u32::from_be_bytes([
+                block[4 * i],
+                block[4 * i + 1],
+                block[4 * i + 2],
+                block[4 * i + 3],
+            ]);
         }
         for i in 16..64 {
             let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
             let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
-            w[i] = w[i - 16].wrapping_add(s0).wrapping_add(w[i - 7]).wrapping_add(s1);
+            w[i] = w[i - 16]
+                .wrapping_add(s0)
+                .wrapping_add(w[i - 7])
+                .wrapping_add(s1);
         }
         let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut hh] = h;
         for i in 0..64 {
             let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
             let ch = (e & f) ^ (!e & g);
-            let t1 = hh.wrapping_add(s1).wrapping_add(ch).wrapping_add(K256[i]).wrapping_add(w[i]);
+            let t1 = hh
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(K256[i])
+                .wrapping_add(w[i]);
             let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
             let maj = (a & b) ^ (a & c) ^ (b & c);
             let t2 = s0.wrapping_add(maj);
@@ -429,28 +460,98 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
 }
 
 const K512: [u64; 80] = [
-    0x428a2f98d728ae22, 0x7137449123ef65cd, 0xb5c0fbcfec4d3b2f, 0xe9b5dba58189dbbc, 0x3956c25bf348b538,
-    0x59f111f1b605d019, 0x923f82a4af194f9b, 0xab1c5ed5da6d8118, 0xd807aa98a3030242, 0x12835b0145706fbe,
-    0x243185be4ee4b28c, 0x550c7dc3d5ffb4e2, 0x72be5d74f27b896f, 0x80deb1fe3b1696b1, 0x9bdc06a725c71235,
-    0xc19bf174cf692694, 0xe49b69c19ef14ad2, 0xefbe4786384f25e3, 0x0fc19dc68b8cd5b5, 0x240ca1cc77ac9c65,
-    0x2de92c6f592b0275, 0x4a7484aa6ea6e483, 0x5cb0a9dcbd41fbd4, 0x76f988da831153b5, 0x983e5152ee66dfab,
-    0xa831c66d2db43210, 0xb00327c898fb213f, 0xbf597fc7beef0ee4, 0xc6e00bf33da88fc2, 0xd5a79147930aa725,
-    0x06ca6351e003826f, 0x142929670a0e6e70, 0x27b70a8546d22ffc, 0x2e1b21385c26c926, 0x4d2c6dfc5ac42aed,
-    0x53380d139d95b3df, 0x650a73548baf63de, 0x766a0abb3c77b2a8, 0x81c2c92e47edaee6, 0x92722c851482353b,
-    0xa2bfe8a14cf10364, 0xa81a664bbc423001, 0xc24b8b70d0f89791, 0xc76c51a30654be30, 0xd192e819d6ef5218,
-    0xd69906245565a910, 0xf40e35855771202a, 0x106aa07032bbd1b8, 0x19a4c116b8d2d0c8, 0x1e376c085141ab53,
-    0x2748774cdf8eeb99, 0x34b0bcb5e19b48a8, 0x391c0cb3c5c95a63, 0x4ed8aa4ae3418acb, 0x5b9cca4f7763e373,
-    0x682e6ff3d6b2b8a3, 0x748f82ee5defb2fc, 0x78a5636f43172f60, 0x84c87814a1f0ab72, 0x8cc702081a6439ec,
-    0x90befffa23631e28, 0xa4506cebde82bde9, 0xbef9a3f7b2c67915, 0xc67178f2e372532b, 0xca273eceea26619c,
-    0xd186b8c721c0c207, 0xeada7dd6cde0eb1e, 0xf57d4f7fee6ed178, 0x06f067aa72176fba, 0x0a637dc5a2c898a6,
-    0x113f9804bef90dae, 0x1b710b35131c471b, 0x28db77f523047d84, 0x32caab7b40c72493, 0x3c9ebe0a15c9bebc,
-    0x431d67c49c100d4c, 0x4cc5d4becb3e42b6, 0x597f299cfc657e2a, 0x5fcb6fab3ad6faec, 0x6c44198c4a475817,
+    0x428a2f98d728ae22,
+    0x7137449123ef65cd,
+    0xb5c0fbcfec4d3b2f,
+    0xe9b5dba58189dbbc,
+    0x3956c25bf348b538,
+    0x59f111f1b605d019,
+    0x923f82a4af194f9b,
+    0xab1c5ed5da6d8118,
+    0xd807aa98a3030242,
+    0x12835b0145706fbe,
+    0x243185be4ee4b28c,
+    0x550c7dc3d5ffb4e2,
+    0x72be5d74f27b896f,
+    0x80deb1fe3b1696b1,
+    0x9bdc06a725c71235,
+    0xc19bf174cf692694,
+    0xe49b69c19ef14ad2,
+    0xefbe4786384f25e3,
+    0x0fc19dc68b8cd5b5,
+    0x240ca1cc77ac9c65,
+    0x2de92c6f592b0275,
+    0x4a7484aa6ea6e483,
+    0x5cb0a9dcbd41fbd4,
+    0x76f988da831153b5,
+    0x983e5152ee66dfab,
+    0xa831c66d2db43210,
+    0xb00327c898fb213f,
+    0xbf597fc7beef0ee4,
+    0xc6e00bf33da88fc2,
+    0xd5a79147930aa725,
+    0x06ca6351e003826f,
+    0x142929670a0e6e70,
+    0x27b70a8546d22ffc,
+    0x2e1b21385c26c926,
+    0x4d2c6dfc5ac42aed,
+    0x53380d139d95b3df,
+    0x650a73548baf63de,
+    0x766a0abb3c77b2a8,
+    0x81c2c92e47edaee6,
+    0x92722c851482353b,
+    0xa2bfe8a14cf10364,
+    0xa81a664bbc423001,
+    0xc24b8b70d0f89791,
+    0xc76c51a30654be30,
+    0xd192e819d6ef5218,
+    0xd69906245565a910,
+    0xf40e35855771202a,
+    0x106aa07032bbd1b8,
+    0x19a4c116b8d2d0c8,
+    0x1e376c085141ab53,
+    0x2748774cdf8eeb99,
+    0x34b0bcb5e19b48a8,
+    0x391c0cb3c5c95a63,
+    0x4ed8aa4ae3418acb,
+    0x5b9cca4f7763e373,
+    0x682e6ff3d6b2b8a3,
+    0x748f82ee5defb2fc,
+    0x78a5636f43172f60,
+    0x84c87814a1f0ab72,
+    0x8cc702081a6439ec,
+    0x90befffa23631e28,
+    0xa4506cebde82bde9,
+    0xbef9a3f7b2c67915,
+    0xc67178f2e372532b,
+    0xca273eceea26619c,
+    0xd186b8c721c0c207,
+    0xeada7dd6cde0eb1e,
+    0xf57d4f7fee6ed178,
+    0x06f067aa72176fba,
+    0x0a637dc5a2c898a6,
+    0x113f9804bef90dae,
+    0x1b710b35131c471b,
+    0x28db77f523047d84,
+    0x32caab7b40c72493,
+    0x3c9ebe0a15c9bebc,
+    0x431d67c49c100d4c,
+    0x4cc5d4becb3e42b6,
+    0x597f299cfc657e2a,
+    0x5fcb6fab3ad6faec,
+    0x6c44198c4a475817,
 ];
 
 pub fn sha512(data: &[u8]) -> [u8; 64] {
     let mut h: [u64; 8] = [
-        0x6a09e667f3bcc908, 0xbb67ae8584caa73b, 0x3c6ef372fe94f82b, 0xa54ff53a5f1d36f1,
-        0x510e527fade682d1, 0x9b05688c2b3e6c1f, 0x1f83d9abfb41bd6b, 0x5be0cd19137e2179,
+        0x6a09e667f3bcc908,
+        0xbb67ae8584caa73b,
+        0x3c6ef372fe94f82b,
+        0xa54ff53a5f1d36f1,
+        0x510e527fade682d1,
+        0x9b05688c2b3e6c1f,
+        0x1f83d9abfb41bd6b,
+        0x5be0cd19137e2179,
     ];
     let mut msg = data.to_vec();
     let bit_len = (data.len() as u128).wrapping_mul(8);
@@ -469,13 +570,20 @@ pub fn sha512(data: &[u8]) -> [u8; 64] {
         for i in 16..80 {
             let s0 = w[i - 15].rotate_right(1) ^ w[i - 15].rotate_right(8) ^ (w[i - 15] >> 7);
             let s1 = w[i - 2].rotate_right(19) ^ w[i - 2].rotate_right(61) ^ (w[i - 2] >> 6);
-            w[i] = w[i - 16].wrapping_add(s0).wrapping_add(w[i - 7]).wrapping_add(s1);
+            w[i] = w[i - 16]
+                .wrapping_add(s0)
+                .wrapping_add(w[i - 7])
+                .wrapping_add(s1);
         }
         let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut hh] = h;
         for i in 0..80 {
             let s1 = e.rotate_right(14) ^ e.rotate_right(18) ^ e.rotate_right(41);
             let ch = (e & f) ^ (!e & g);
-            let t1 = hh.wrapping_add(s1).wrapping_add(ch).wrapping_add(K512[i]).wrapping_add(w[i]);
+            let t1 = hh
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(K512[i])
+                .wrapping_add(w[i]);
             let s0 = a.rotate_right(28) ^ a.rotate_right(34) ^ a.rotate_right(39);
             let maj = (a & b) ^ (a & c) ^ (b & c);
             let t2 = s0.wrapping_add(maj);
@@ -543,7 +651,11 @@ struct Wire<'a> {
 
 impl<'a> Wire<'a> {
     fn bytes(&mut self, n: usize) -> Result<&'a [u8], String> {
-        let end = self.i.checked_add(n).filter(|e| *e <= self.b.len()).ok_or("SSH data truncated")?;
+        let end = self
+            .i
+            .checked_add(n)
+            .filter(|e| *e <= self.b.len())
+            .ok_or("SSH data truncated")?;
         let s = &self.b[self.i..end];
         self.i = end;
         Ok(s)
@@ -590,7 +702,11 @@ fn parse_sk_ed25519_blob(blob: &[u8]) -> Result<ApproverKey, String> {
 /// sk-ssh-ed25519 keys are accepted; `#` lines are comments.
 pub fn parse_approver_keys(file: &str) -> Vec<ApproverKey> {
     let mut out = Vec::new();
-    for line in file.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+    for line in file
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+    {
         let tokens: Vec<&str> = line.split_whitespace().collect();
         let Some(pos) = tokens.iter().position(|t| *t == SK_ED25519) else {
             continue;
@@ -609,7 +725,11 @@ pub fn parse_approver_keys(file: &str) -> Vec<ApproverKey> {
 
 /// Validates an armored SSH signature over `message` (namespace, approved key, FIDO touch + PIN
 /// flags) and returns the raw Ed25519 check that must still succeed.
-pub fn prepare_approval_check(armored: &str, message: &[u8], approvers: &[ApproverKey]) -> Result<Ed25519Check, String> {
+pub fn prepare_approval_check(
+    armored: &str,
+    message: &[u8],
+    approvers: &[ApproverKey],
+) -> Result<Ed25519Check, String> {
     let body: String = armored
         .lines()
         .map(str::trim)
@@ -668,7 +788,11 @@ pub fn prepare_approval_check(armored: &str, message: &[u8], approvers: &[Approv
     msg.extend_from_slice(&sha256(&signed));
     let mut signature = [0u8; 64];
     signature.copy_from_slice(raw);
-    Ok(Ed25519Check { public_key: key.ed25519, message: msg, signature })
+    Ok(Ed25519Check {
+        public_key: key.ed25519,
+        message: msg,
+        signature,
+    })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -694,7 +818,8 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
     {
         return Err("manifest: installer URL is not a release asset of this repository".into());
     }
-    let signature = unwrap_minisign_text(&sig_raw).ok_or("manifest: missing or malformed signature")?;
+    let signature =
+        unwrap_minisign_text(&sig_raw).ok_or("manifest: missing or malformed signature")?;
     Ok(Manifest {
         version,
         notes: s(root.get("notes")).chars().take(2000).collect(),
@@ -723,11 +848,21 @@ mod tests {
         let b = s.as_bytes();
         let mut out = String::new();
         for c in b.chunks(3) {
-            let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+            let n = (c[0] as u32) << 16
+                | (*c.get(1).unwrap_or(&0) as u32) << 8
+                | *c.get(2).unwrap_or(&0) as u32;
             out.push(A[(n >> 18) as usize & 63] as char);
             out.push(A[(n >> 12) as usize & 63] as char);
-            out.push(if c.len() > 1 { A[(n >> 6) as usize & 63] as char } else { '=' });
-            out.push(if c.len() > 2 { A[n as usize & 63] as char } else { '=' });
+            out.push(if c.len() > 1 {
+                A[(n >> 6) as usize & 63] as char
+            } else {
+                '='
+            });
+            out.push(if c.len() > 2 {
+                A[n as usize & 63] as char
+            } else {
+                '='
+            });
         }
         out
     }
@@ -763,13 +898,20 @@ mod tests {
 
     #[test]
     fn manifest_parses_tauri_shape() {
-        let url = "https://github.com/ppundsh/CustomerFD/releases/download/v2.0.2/CustomerFD-Setup.exe";
+        let url =
+            "https://github.com/ppundsh/CustomerFD/releases/download/v2.0.2/CustomerFD-Setup.exe";
         let m = parse_manifest(&manifest_json(url, &b64(SIG_TEXT))).unwrap();
         assert_eq!(m.version, "2.0.2");
         assert_eq!(m.url, url);
         assert_eq!(m.signature, SIG_TEXT);
         assert_eq!(m.notes, "Fixes \"RAR\" reads\n中");
-        assert_eq!(split_https_url(&m.url), Some(("github.com", "/ppundsh/CustomerFD/releases/download/v2.0.2/CustomerFD-Setup.exe")));
+        assert_eq!(
+            split_https_url(&m.url),
+            Some((
+                "github.com",
+                "/ppundsh/CustomerFD/releases/download/v2.0.2/CustomerFD-Setup.exe"
+            ))
+        );
     }
 
     #[test]
@@ -788,7 +930,8 @@ mod tests {
 
     #[test]
     fn manifest_requires_signature() {
-        let url = "https://github.com/ppundsh/CustomerFD/releases/download/v2.0.2/CustomerFD-Setup.exe";
+        let url =
+            "https://github.com/ppundsh/CustomerFD/releases/download/v2.0.2/CustomerFD-Setup.exe";
         assert!(parse_manifest(&manifest_json(url, "")).is_err());
         assert!(parse_manifest(&manifest_json(url, "bm90IGEgc2lnbmF0dXJl")).is_err());
     }
@@ -819,10 +962,16 @@ AtIyO3L+2hChTPioI3ojcgj/0wePAAUAAAAH
 
     #[test]
     fn sha2_matches_reference() {
-        assert_eq!(hex(&sha256(b"abc")), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        assert_eq!(
+            hex(&sha256(b"abc")),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
         assert_eq!(hex(&sha512(b"abc")), "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f");
         let x: Vec<u8> = (0..5).flat_map(|_| 0u8..=255).collect();
-        assert_eq!(hex(&sha256(&x)), "d414b085826eb06778483ba35564dc849e643359f69ed9747878ba6e54985bed");
+        assert_eq!(
+            hex(&sha256(&x)),
+            "d414b085826eb06778483ba35564dc849e643359f69ed9747878ba6e54985bed"
+        );
         assert_eq!(hex(&sha512(&x)), "c93f55ccf2fa8c82699ff9b58afe3591242b135d908a6d865e17e38adb41c21d1d5359e51273036373d54d20b5659cc87e6e7b381ff027d33f971416cc590f90");
     }
 
@@ -833,7 +982,10 @@ AtIyO3L+2hChTPioI3ojcgj/0wePAAUAAAAH
         assert_eq!(keys[0].application, "ssh:github");
         let stmt = approval_statement("2.0.2", &hex(&sha256(b"installer")));
         let check = prepare_approval_check(ARMORED, stmt.as_bytes(), &keys).unwrap();
-        assert_eq!(hex(&check.public_key), "5f51cf98b4d509e8ba4d5d5d29f5eb454c5555bd99aabba0cea3cb7e54d07a2e");
+        assert_eq!(
+            hex(&check.public_key),
+            "5f51cf98b4d509e8ba4d5d5d29f5eb454c5555bd99aabba0cea3cb7e54d07a2e"
+        );
         assert_eq!(hex(&check.message), "3e861c3042e923d26120ac735d2aa1a9bd94473fb1f583747ab76e0b63e1cff3050000000703abd39bc43c74726a00cd6e21b81e9edc9c5b0e02da5f223589a639da459fec");
         assert_eq!(hex(&check.signature), "5094ccbf71eb2bcb84810f6b920c1eee3bfaa0b99743a87848e5192ef5f3ad3e3de9bfb360bfb4cf2c0b02d2323b72feda10a14cf8a8237a237208ffd3078f00");
     }
@@ -848,8 +1000,20 @@ AtIyO3L+2hChTPioI3ojcgj/0wePAAUAAAAH
         // Not an approved key.
         assert!(prepare_approval_check(ARMORED, b"x", &[]).is_err());
         // Software (non-FIDO) keys are never accepted as approvers.
-        assert!(parse_approver_keys("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl x").is_empty());
+        assert!(parse_approver_keys(
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl x"
+        )
+        .is_empty());
         assert!(prepare_approval_check("garbage", b"x", &keys).is_err());
+    }
+
+    #[test]
+    fn shipped_key_file_accepts_a_pasted_key() {
+        // assets/updater.pub starts with '#' instructions; a key pasted below them must be found.
+        let template = include_str!("../../../assets/updater.pub");
+        let key = "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3";
+        let file = format!("{template}\nuntrusted comment: minisign public key: 1234\n{key}\n");
+        assert_eq!(normalize_public_key(&file).as_deref(), Some(key));
     }
 
     #[test]
@@ -861,7 +1025,14 @@ AtIyO3L+2hChTPioI3ojcgj/0wePAAUAAAAH
 
     #[test]
     fn json_rejects_malformed() {
-        for bad in ["{", "{\"a\":}", "[1,]", "\"\\x\"", "{} x", "[[[[[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]]]]]"] {
+        for bad in [
+            "{",
+            "{\"a\":}",
+            "[1,]",
+            "\"\\x\"",
+            "{} x",
+            "[[[[[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]]]]]",
+        ] {
             assert!(parse_json(bad).is_err(), "{bad}");
         }
     }

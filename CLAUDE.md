@@ -12,22 +12,23 @@ CustomerFD 是 Windows 11 檔案總管**左側邊欄自訂資料夾**擴充套�
 |---|---|---|
 | `crates/cfd-core` | rlib | 設定檔（`%LOCALAPPDATA%\CustomerFD\config.json`）、HKCU 註冊／反註冊、`SHChangeNotify`、圖示 |
 | `crates/cfd-shell` | `cfd_shell.dll` | COM Shell Namespace Extension（`IShellFolder`、`IPersistFolder2`、`IEnumIDList`），**由 explorer.exe 載入** |
-| `crates/cfd-manager` | `cfd-manager.exe` | Win32 / GDI 自繪的 Fluent 控制中心 |
-| `crates/cfd-installer`（規劃中） | `CustomerFD-Setup.exe` | 安裝、解除安裝、就地更新 |
+| `crates/cfd-ui` | rlib | Fluent 繪製工具：色票（`theme.rs`）、Mica／Acrylic（`backdrop.rs`）、預乘 alpha DIB（`dib.rs`）、控制項（`widgets.rs`）。控制中心與安裝程式共用，**新控制項先加在這裡** |
+| `crates/cfd-manager` | `cfd-manager.exe` | 控制中心：`app.rs`（狀態、Action、點擊區域）、`render.rs`（繪製流程、導覽列、彈出選單、Modal）、`pages.rs`（三個頁面）、`edit.rs`（文字輸入）、`update_core.rs`＋`updater.rs`（版本檢查與自動更新） |
+| `crates/cfd-installer` | `CustomerFD-Setup.exe` | 安裝、解除安裝、就地更新（`--update --wait-pid`）；`build.rs` 把 release 產出物打包進安裝檔 |
 
 ## 建置與執行（Windows，PowerShell）
 
 ```powershell
-.\build.ps1                 # cargo build --release --workspace，輸出到 dist\
-.\deploy.ps1                # build + regsvr32 /s dist\cfd_shell.dll + 啟動控制中心
-.\uninstall.ps1             # 清除所有 CLSID、NameSpace、HideDesktopIcons 與設定資料夾
-cargo test --workspace      # 單元測試（update_core 等純邏輯模組）
-cargo clippy --workspace --all-targets -- -D warnings
-cargo fmt --all
+.\build.ps1                 # release 建置，產出 dist\CustomerFD-Setup.exe（含隱私檢查：二進位檔不得含本機路徑）
+.\deploy.ps1                # build + 靜默安裝到 %LOCALAPPDATA%\Programs\CustomerFD + 開啟控制中心
+.\run-checks.ps1            # fmt --check、clippy -D warnings、test、build（提交前執行）
+.\uninstall.ps1             # 開發用：清除所有 CLSID、NameSpace、HideDesktopIcons 與設定資料夾
+.\bump-version.ps1 [patch|minor|X.Y.Z] [-Tag] [-Push]   # 改版號；推送 vX.Y.Z 標籤即觸發發行
 ```
 
-- 只能在 Windows（MSVC toolchain）建置與執行；Linux 上只能做 `cargo check` 等級的檢查且多半會因 `windows` crate 而失敗，不要當成驗證。
-- `cfd_shell.dll` 被 explorer.exe 載入後會被鎖住；重新建置前先用控制中心「重新啟動檔案總管」或 `uninstall.ps1`，否則複製會失敗。
+- 只能在 Windows（MSVC toolchain＋Windows SDK 的 `rc.exe`）建置與執行。在 Linux 上可用 `RUSTC_BOOTSTRAP=1 cargo check -Zbuild-std=std,panic_unwind --target x86_64-pc-windows-msvc` 做型別檢查（需要 rust-src），但無法連結或執行，不能取代 Windows 上的驗證。
+- `update_core.rs` 不依賴 Win32，可單獨測試：`rustc --edition 2021 --test crates/cfd-manager/src/update_core.rs`。
+- `cfd_shell.dll` 被 explorer.exe 載入後會被鎖住；安裝程式會把舊檔改名為 `*.old` 再寫入。開發時直接覆寫 `target\release` 前，先重新啟動檔案總管。
 
 ## 不可違反的規則
 
@@ -50,7 +51,7 @@ cargo fmt --all
 - 互動不位移：按下只換色，懸停放大不超過 1 px；動畫 ≤ 220 ms、ease-out；閒置時 `KillTimer`。
 - 導覽列（alpha = 0 的 Mica 區）上的文字必須用 `DrawThemeTextEx(DTT_COMPOSITED)`。
 - 一張卡片只放一個功能；有子設定的卡片做成可展開卡片（Expander）。
-- 不使用 `MessageBoxW`；確認／錯誤用自繪 Modal。
+- 控制中心不使用 `MessageBoxW`；確認／錯誤用自繪 Modal 與 InfoBar（安裝程式可用 MessageBox）。
 - 繪製一律雙緩衝（32-bit 預乘 BGRA DIB → 單次 `BitBlt`）。
 - 狀態存取要能容忍重入（開檔對話框等模態迴圈期間）：用 `try_borrow_mut`／`try_lock`，失敗時只排定重繪。
 

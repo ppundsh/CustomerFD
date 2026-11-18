@@ -128,7 +128,9 @@ pub enum KeyResult {
 
 /// WM_KEYDOWN for the focused field.
 pub unsafe fn key_down(st: &mut AppState, hwnd: HWND, vk: u32) -> KeyResult {
-    let Some(field) = st.focused else { return KeyResult::NotHandled };
+    let Some(field) = st.focused else {
+        return KeyResult::NotHandled;
+    };
     let ctrl = GetKeyState(VK_CONTROL.0 as i32) < 0;
     let shift = GetKeyState(VK_SHIFT.0 as i32) < 0;
     let mut text = st.field_text(field).to_string();
@@ -242,7 +244,9 @@ fn insert_str(text: &mut String, e: &mut EditState, s: &str) {
 
 /// WM_CHAR for the focused field (handles UTF-16 surrogate pairs from the IME).
 pub fn char_input(st: &mut AppState, unit: u16, pending_high: &mut Option<u16>) -> bool {
-    let Some(field) = st.focused else { return false };
+    let Some(field) = st.focused else {
+        return false;
+    };
     let ch = if (0xD800..0xDC00).contains(&unit) {
         *pending_high = Some(unit);
         return true;
@@ -275,16 +279,28 @@ mod tests {
 
     #[test]
     fn selection_is_ordered_and_clamped() {
-        let e = EditState { caret: 1, anchor: Some(9), ..Default::default() };
+        let e = EditState {
+            caret: 1,
+            anchor: Some(9),
+            ..Default::default()
+        };
         assert_eq!(selection(&e, 5), Some((1, 5)));
-        let e = EditState { caret: 2, anchor: Some(2), ..Default::default() };
+        let e = EditState {
+            caret: 2,
+            anchor: Some(2),
+            ..Default::default()
+        };
         assert_eq!(selection(&e, 5), None);
     }
 
     #[test]
     fn insert_replaces_and_respects_utf8() {
         let mut t = "資料夾".to_string();
-        let mut e = EditState { caret: 1, anchor: Some(3), ..Default::default() };
+        let mut e = EditState {
+            caret: 1,
+            anchor: Some(3),
+            ..Default::default()
+        };
         delete_selection(&mut t, &mut e);
         insert_str(&mut t, &mut e, "料\n夾X");
         assert_eq!(t, "資料夾X");

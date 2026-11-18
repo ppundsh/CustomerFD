@@ -41,16 +41,11 @@ pub fn parse_guid(s: &str) -> Option<GUID> {
     Some(GUID::from_u128(val))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum UiLang {
+    #[default]
     ZhTw,
     En,
-}
-
-impl Default for UiLang {
-    fn default() -> Self {
-        Self::ZhTw
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -210,7 +205,10 @@ impl AppConfig {
                             .take()
                             .filter(|s| !s.trim().is_empty())
                             .unwrap_or_else(default_root_icon),
-                        sort_order_index: cfg.sort_order_index.take().unwrap_or_else(default_sort_order),
+                        sort_order_index: cfg
+                            .sort_order_index
+                            .take()
+                            .unwrap_or_else(default_sort_order),
                     });
                 }
                 for sub in &mut cfg.subfolders {
@@ -301,7 +299,10 @@ mod tests {
         }
         assert_eq!(cfg.root_folders.len() as u128, MAX_ROOT_FOLDERS);
         let mut seen = std::collections::HashSet::new();
-        assert!(cfg.root_folders.iter().all(|r| seen.insert(r.clsid.to_ascii_uppercase())));
+        assert!(cfg
+            .root_folders
+            .iter()
+            .all(|r| seen.insert(r.clsid.to_ascii_uppercase())));
     }
 
     #[test]

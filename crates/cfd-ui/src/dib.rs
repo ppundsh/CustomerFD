@@ -8,7 +8,14 @@
 
 use windows::Win32::Foundation::RECT;
 
-fn box_blur_1d(src: &[[u32; 4]], dst: &mut [[u32; 4]], w: usize, h: usize, r: usize, horizontal: bool) {
+fn box_blur_1d(
+    src: &[[u32; 4]],
+    dst: &mut [[u32; 4]],
+    w: usize,
+    h: usize,
+    r: usize,
+    horizontal: bool,
+) {
     let (outer, inner) = if horizontal { (h, w) } else { (w, h) };
     let idx = |o: usize, i: usize| if horizontal { o * w + i } else { i * w + o };
     let win = (2 * r + 1) as u32;
@@ -62,10 +69,10 @@ impl DibSurface {
         }
         let idx = (y as usize) * (self.w as usize) + (x as usize);
         let dst = *self.bits.add(idx);
-        let da = ((dst >> 24) & 0xFF) as u32;
-        let dr = ((dst >> 16) & 0xFF) as u32;
-        let dg = ((dst >> 8) & 0xFF) as u32;
-        let db = (dst & 0xFF) as u32;
+        let da = (dst >> 24) & 0xFF;
+        let dr = (dst >> 16) & 0xFF;
+        let dg = (dst >> 8) & 0xFF;
+        let db = dst & 0xFF;
 
         let sa = a as u32;
         let sr = (r as u32 * sa + 127) / 255;
@@ -148,7 +155,15 @@ impl DibSurface {
 
     /// In-app acrylic: blurs the premultiplied pixels inside a rounded rectangle (three box-blur
     /// passes ≈ Gaussian), blending at the anti-aliased edge so corners stay round.
-    pub unsafe fn blur_round_rect(&self, x0: i32, y0: i32, x1: i32, y1: i32, radius: i32, blur: i32) {
+    pub unsafe fn blur_round_rect(
+        &self,
+        x0: i32,
+        y0: i32,
+        x1: i32,
+        y1: i32,
+        radius: i32,
+        blur: i32,
+    ) {
         let sx0 = x0.max(0);
         let sy0 = y0.max(0);
         let sx1 = x1.min(self.w);
@@ -176,15 +191,30 @@ impl DibSurface {
         for py in sy0..sy1 {
             let row = (py as usize) * (self.w as usize);
             for px in sx0..sx1 {
-                let c = round_rect_coverage(px as f32 + 0.5, py as f32 + 0.5, x0 as f32, y0 as f32, x1 as f32, y1 as f32, rad);
+                let c = round_rect_coverage(
+                    px as f32 + 0.5,
+                    py as f32 + 0.5,
+                    x0 as f32,
+                    y0 as f32,
+                    x1 as f32,
+                    y1 as f32,
+                    rad,
+                );
                 if c <= 0.0 {
                     continue;
                 }
                 let b = buf[((py - sy0) as usize) * wu + (px - sx0) as usize];
                 let ptr = self.bits.add(row + px as usize);
                 let o = *ptr;
-                let mix = |ov: u32, nv: u32| -> u32 { ((ov as f32) * (1.0 - c) + (nv as f32) * c).round().clamp(0.0, 255.0) as u32 };
-                *ptr = mix(o & 0xFF, b[0]) | (mix((o >> 8) & 0xFF, b[1]) << 8) | (mix((o >> 16) & 0xFF, b[2]) << 16) | (mix(o >> 24, b[3]) << 24);
+                let mix = |ov: u32, nv: u32| -> u32 {
+                    ((ov as f32) * (1.0 - c) + (nv as f32) * c)
+                        .round()
+                        .clamp(0.0, 255.0) as u32
+                };
+                *ptr = mix(o & 0xFF, b[0])
+                    | (mix((o >> 8) & 0xFF, b[1]) << 8)
+                    | (mix((o >> 16) & 0xFF, b[2]) << 16)
+                    | (mix(o >> 24, b[3]) << 24);
             }
         }
     }
@@ -227,7 +257,13 @@ impl DibSurface {
         }
     }
 
-    pub unsafe fn fill_content_panel_aa(&self, sidebar_w: i32, radius: i32, bg_bgr: u32, border_bgr: u32) {
+    pub unsafe fn fill_content_panel_aa(
+        &self,
+        sidebar_w: i32,
+        radius: i32,
+        bg_bgr: u32,
+        border_bgr: u32,
+    ) {
         let sx0 = sidebar_w.max(0);
         let r_f = radius as f32;
         let bg_b = (bg_bgr >> 16) as u8;

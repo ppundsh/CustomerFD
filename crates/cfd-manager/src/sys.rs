@@ -13,7 +13,7 @@ use windows::Win32::UI::Shell::{
 use windows::Win32::UI::WindowsAndMessaging::{HICON, SW_SHOW};
 
 #[repr(C)]
-#[allow(non_snake_case)]
+#[allow(non_snake_case, clippy::upper_case_acronyms)]
 struct OPENFILENAMEW {
     lStructSize: u32,
     hwndOwner: HWND,
@@ -138,7 +138,10 @@ pub unsafe fn prompt_open_file(hwnd: HWND, title: &str, filter: &str) -> Option<
         FlagsEx: 0,
     };
     if GetOpenFileNameW(&mut ofn).as_bool() {
-        let len = file_buf.iter().position(|&c| c == 0).unwrap_or(file_buf.len());
+        let len = file_buf
+            .iter()
+            .position(|&c| c == 0)
+            .unwrap_or(file_buf.len());
         if len > 0 {
             return Some(String::from_utf16_lossy(&file_buf[..len]));
         }
@@ -148,9 +151,12 @@ pub unsafe fn prompt_open_file(hwnd: HWND, title: &str, filter: &str) -> Option<
 
 /// Modern folder picker.
 pub unsafe fn browse_folder_dialog(owner: HWND, title: &str) -> Option<String> {
-    let dialog: IFileOpenDialog = CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).ok()?;
+    let dialog: IFileOpenDialog =
+        CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).ok()?;
     let opts = dialog.GetOptions().ok()?;
-    dialog.SetOptions(opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST).ok()?;
+    dialog
+        .SetOptions(opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST)
+        .ok()?;
     let title_w = to_wide(title);
     let _ = dialog.SetTitle(PCWSTR(title_w.as_ptr()));
     dialog.Show(owner).ok()?;
@@ -165,7 +171,14 @@ pub unsafe fn browse_folder_dialog(owner: HWND, title: &str) -> Option<String> {
 pub unsafe fn shell_open(target: &str) {
     let path_w = to_wide(target);
     let op_w = to_wide("open");
-    ShellExecuteW(HWND::default(), PCWSTR(op_w.as_ptr()), PCWSTR(path_w.as_ptr()), PCWSTR::null(), PCWSTR::null(), SW_SHOW);
+    ShellExecuteW(
+        HWND::default(),
+        PCWSTR(op_w.as_ptr()),
+        PCWSTR(path_w.as_ptr()),
+        PCWSTR::null(),
+        PCWSTR::null(),
+        SW_SHOW,
+    );
 }
 
 /// Splits an icon location `"C:\path\file.dll,-4"` into path and index (index 0 when absent).
@@ -222,7 +235,14 @@ pub unsafe fn load_shell_icon(loc: &str, size: i32) -> Option<HICON> {
     let path_w = to_wide(&path);
     let mut large = HICON::default();
     let sz = size.clamp(16, 256) as u32;
-    let hr = SHDefExtractIconW(PCWSTR(path_w.as_ptr()), index, 0, Some(&mut large), None, sz);
+    let hr = SHDefExtractIconW(
+        PCWSTR(path_w.as_ptr()),
+        index,
+        0,
+        Some(&mut large),
+        None,
+        sz,
+    );
     if hr.is_ok() && !large.is_invalid() {
         Some(large)
     } else {

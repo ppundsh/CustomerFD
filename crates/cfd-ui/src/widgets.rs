@@ -46,7 +46,9 @@ pub const GLYPH_ERROR: &str = "\u{E783}";
 pub const GLYPH_IMAGE: &str = "\u{EB9F}";
 
 const LEFT_VC: windows::Win32::Graphics::Gdi::DRAW_TEXT_FORMAT =
-    windows::Win32::Graphics::Gdi::DRAW_TEXT_FORMAT(DT_LEFT.0 | DT_VCENTER.0 | DT_SINGLELINE.0 | DT_END_ELLIPSIS.0);
+    windows::Win32::Graphics::Gdi::DRAW_TEXT_FORMAT(
+        DT_LEFT.0 | DT_VCENTER.0 | DT_SINGLELINE.0 | DT_END_ELLIPSIS.0,
+    );
 const CENTER_VC: windows::Win32::Graphics::Gdi::DRAW_TEXT_FORMAT =
     windows::Win32::Graphics::Gdi::DRAW_TEXT_FORMAT(DT_CENTER.0 | DT_VCENTER.0 | DT_SINGLELINE.0);
 
@@ -59,7 +61,16 @@ pub unsafe fn card(hdc: HDC, dpi: u32, rc: &RECT) {
 /// Expander card: grows 1 px on every side while its header is hovered.
 pub unsafe fn expander_card(hdc: HDC, dpi: u32, rc: &RECT, hovered: bool) {
     let g = if hovered { scale(1, dpi).max(1) } else { 0 };
-    card(hdc, dpi, &RECT { left: rc.left - g, top: rc.top - g, right: rc.right + g, bottom: rc.bottom + g });
+    card(
+        hdc,
+        dpi,
+        &RECT {
+            left: rc.left - g,
+            top: rc.top - g,
+            right: rc.right + g,
+            bottom: rc.bottom + g,
+        },
+    );
 }
 
 /// Sub-card (one level deeper than a card), visual radius 3.
@@ -83,15 +94,28 @@ pub unsafe fn expander_header_fill(
         return;
     }
     let th = theme();
-    let hover_bg = if expanded { lerp_bgr(th.card_bg, th.btn_hover_bg, 0.65) } else { th.btn_hover_bg };
+    let hover_bg = if expanded {
+        lerp_bgr(th.card_bg, th.btn_hover_bg, 0.65)
+    } else {
+        th.btn_hover_bg
+    };
     let press_bg = lerp_bgr(th.card_bg, th.btn_hover_bg, 0.35);
     let fill = if pressed {
-        lerp_bgr(if hovered { hover_bg } else { th.card_bg }, press_bg, press_anim)
+        lerp_bgr(
+            if hovered { hover_bg } else { th.card_bg },
+            press_bg,
+            press_anim,
+        )
     } else {
         hover_bg
     };
     let g = scale(1, dpi).max(1);
-    let rc = RECT { left: card_rc.left - g, top: card_rc.top - g, right: card_rc.right + g, bottom: card_rc.bottom + g };
+    let rc = RECT {
+        left: card_rc.left - g,
+        top: card_rc.top - g,
+        right: card_rc.right + g,
+        bottom: card_rc.bottom + g,
+    };
     let d = scale(12, dpi);
     if !expanded {
         round_box(hdc, &rc, d, fill, th.card_border);
@@ -99,7 +123,18 @@ pub unsafe fn expander_header_fill(
         let saved = SaveDC(hdc);
         let rgn = CreateRectRgn(rc.left, rc.top, rc.right + 1, card_rc.top + header_h);
         let _ = ExtSelectClipRgn(hdc, rgn, RGN_AND);
-        round_box(hdc, &RECT { left: rc.left, top: rc.top, right: rc.right, bottom: card_rc.top + header_h + d }, d, fill, th.card_border);
+        round_box(
+            hdc,
+            &RECT {
+                left: rc.left,
+                top: rc.top,
+                right: rc.right,
+                bottom: card_rc.top + header_h + d,
+            },
+            d,
+            fill,
+            th.card_border,
+        );
         let _ = RestoreDC(hdc, saved);
         let _ = DeleteObject(rgn);
     }
@@ -109,7 +144,16 @@ pub unsafe fn expander_header_fill(
 pub unsafe fn expander_seam(hdc: HDC, dpi: u32, x: i32, y: i32, w: i32) {
     let h = scale(2, dpi).max(2);
     let g = scale(1, dpi).max(1);
-    fill_rect(hdc, &RECT { left: x - g, top: y - h / 2, right: x + w + g, bottom: y - h / 2 + h }, theme().win_bg);
+    fill_rect(
+        hdc,
+        &RECT {
+            left: x - g,
+            top: y - h / 2,
+            right: x + w + g,
+            bottom: y - h / 2 + h,
+        },
+        theme().win_bg,
+    );
 }
 
 /// Icon glyph centred in `rc`.
@@ -123,7 +167,11 @@ pub unsafe fn chevron(hdc: HDC, fonts: &Fonts, dpi: u32, cx: i32, cy: i32, up: b
     glyph(
         hdc,
         fonts.icon_small,
-        if up { GLYPH_CHEVRON_UP } else { GLYPH_CHEVRON_DOWN },
+        if up {
+            GLYPH_CHEVRON_UP
+        } else {
+            GLYPH_CHEVRON_DOWN
+        },
         &rect(cx - sz / 2, cy - sz / 2, sz, sz),
         color,
     );
@@ -204,12 +252,41 @@ pub unsafe fn button_with_glyph(
     let tw = crate::gdi::text_width(hdc, label, fonts.body);
     let total = gw + gap + tw;
     let x0 = rc.left + ((rc.right - rc.left) - total).max(0) / 2;
-    glyph(hdc, fonts.icon, icon, &RECT { left: x0, top: rc.top, right: x0 + gw, bottom: rc.bottom }, color);
-    draw_text(hdc, label, &RECT { left: x0 + gw + gap, top: rc.top, right: rc.right, bottom: rc.bottom }, color, fonts.body, LEFT_VC);
+    glyph(
+        hdc,
+        fonts.icon,
+        icon,
+        &RECT {
+            left: x0,
+            top: rc.top,
+            right: x0 + gw,
+            bottom: rc.bottom,
+        },
+        color,
+    );
+    draw_text(
+        hdc,
+        label,
+        &RECT {
+            left: x0 + gw + gap,
+            top: rc.top,
+            right: rc.right,
+            bottom: rc.bottom,
+        },
+        color,
+        fonts.body,
+        LEFT_VC,
+    );
 }
 
 /// Width a button needs for `label` (+ optional glyph) with Fluent padding.
-pub unsafe fn button_width(hdc: HDC, fonts: &Fonts, dpi: u32, label: &str, with_glyph: bool) -> i32 {
+pub unsafe fn button_width(
+    hdc: HDC,
+    fonts: &Fonts,
+    dpi: u32,
+    label: &str,
+    with_glyph: bool,
+) -> i32 {
     let tw = crate::gdi::text_width(hdc, label, fonts.body);
     let extra = if with_glyph { scale(24, dpi) } else { 0 };
     (tw + extra + scale(32, dpi)).max(scale(72, dpi))
@@ -228,7 +305,18 @@ pub unsafe fn subtle_bg(hdc: HDC, dpi: u32, rc: &RECT, hovered: bool, pressed: b
     };
     if let Some(c) = fill {
         let p = scale(2, dpi);
-        round_box(hdc, &RECT { left: rc.left, top: rc.top - p, right: rc.right, bottom: rc.bottom + p }, scale(8, dpi), c, c);
+        round_box(
+            hdc,
+            &RECT {
+                left: rc.left,
+                top: rc.top - p,
+                right: rc.right,
+                bottom: rc.bottom + p,
+            },
+            scale(8, dpi),
+            c,
+            c,
+        );
     }
 }
 
@@ -268,8 +356,31 @@ pub unsafe fn subtle_button(
             let gap = scale(6, dpi);
             let tw = crate::gdi::text_width(hdc, label, fonts.body);
             let x0 = rc.left + ((rc.right - rc.left) - (gw + gap + tw)).max(0) / 2;
-            glyph(hdc, fonts.icon, g, &RECT { left: x0, top: rc.top, right: x0 + gw, bottom: rc.bottom }, color);
-            draw_text(hdc, label, &RECT { left: x0 + gw + gap, top: rc.top, right: rc.right, bottom: rc.bottom }, color, fonts.body, LEFT_VC);
+            glyph(
+                hdc,
+                fonts.icon,
+                g,
+                &RECT {
+                    left: x0,
+                    top: rc.top,
+                    right: x0 + gw,
+                    bottom: rc.bottom,
+                },
+                color,
+            );
+            draw_text(
+                hdc,
+                label,
+                &RECT {
+                    left: x0 + gw + gap,
+                    top: rc.top,
+                    right: rc.right,
+                    bottom: rc.bottom,
+                },
+                color,
+                fonts.body,
+                LEFT_VC,
+            );
         }
         (None, _) => draw_text(hdc, label, rc, color, fonts.body, CENTER_VC),
     }
@@ -300,23 +411,62 @@ pub unsafe fn selectable_button(
     } else if pressed {
         (th.sub_card_bg, th.btn_border, th.text_secondary)
     } else if hovered {
-        (th.sel_unselected_hover_bg, th.btn_hover_border, th.text_bright)
+        (
+            th.sel_unselected_hover_bg,
+            th.btn_hover_border,
+            th.text_bright,
+        )
     } else {
-        (th.sel_unselected_bg, th.sel_unselected_border, th.sel_unselected_text)
+        (
+            th.sel_unselected_bg,
+            th.sel_unselected_border,
+            th.sel_unselected_text,
+        )
     };
     round_box(hdc, rc, scale(5, dpi), bg, border);
     let pad = scale(10, dpi);
     let mut x = rc.left + pad;
     if let Some(g) = icon {
         let gw = scale(16, dpi);
-        glyph(hdc, fonts.icon, g, &RECT { left: x, top: rc.top, right: x + gw, bottom: rc.bottom }, text);
+        glyph(
+            hdc,
+            fonts.icon,
+            g,
+            &RECT {
+                left: x,
+                top: rc.top,
+                right: x + gw,
+                bottom: rc.bottom,
+            },
+            text,
+        );
         x += gw + scale(6, dpi);
     }
-    draw_text(hdc, label, &RECT { left: x, top: rc.top, right: rc.right - pad, bottom: rc.bottom }, text, fonts.body, LEFT_VC);
+    draw_text(
+        hdc,
+        label,
+        &RECT {
+            left: x,
+            top: rc.top,
+            right: rc.right - pad,
+            bottom: rc.bottom,
+        },
+        text,
+        fonts.body,
+        LEFT_VC,
+    );
 }
 
 /// Toggle switch (40 × 20 capsule). `anim` 0 = off, 1 = on (interpolated by the caller).
-pub unsafe fn toggle(hdc: HDC, dpi: u32, x: i32, y: i32, anim: f32, hovered: bool, disabled: bool) -> RECT {
+pub unsafe fn toggle(
+    hdc: HDC,
+    dpi: u32,
+    x: i32,
+    y: i32,
+    anim: f32,
+    hovered: bool,
+    disabled: bool,
+) -> RECT {
     let w = scale(40, dpi);
     let h = scale(20, dpi);
     let dark = theme().dark;
@@ -331,7 +481,11 @@ pub unsafe fn toggle(hdc: HDC, dpi: u32, x: i32, y: i32, anim: f32, hovered: boo
         let off_fill = if dark { 0x222226 } else { 0xF5F5F5 };
         let off_border = if dark { 0x9A9A9E } else { 0x606060 };
         let fa = if dark { 0.5 + 0.5 * a } else { 1.0 };
-        (lerp_color_rgb(off_fill, accent_rgb(), a), fa, lerp_color_rgb(off_border, accent_rgb(), a))
+        (
+            lerp_color_rgb(off_fill, accent_rgb(), a),
+            fa,
+            lerp_color_rgb(off_border, accent_rgb(), a),
+        )
     };
     draw_aa_pill(hdc, x, y, w, h, fill, fill_a, border, 1.0, 1.0);
     let r_min = scale(5, dpi) as f32;
@@ -349,7 +503,11 @@ pub unsafe fn toggle(hdc: HDC, dpi: u32, x: i32, y: i32, anim: f32, hovered: boo
         }
     } else {
         let off_k = if dark { 0xCECECE } else { 0x606060 };
-        let on_k = if dark { 0x222226 } else { accent_contrast_text_rgb() };
+        let on_k = if dark {
+            0x222226
+        } else {
+            accent_contrast_text_rgb()
+        };
         (lerp_color_rgb(off_k, on_k, a), 1.0)
     };
     draw_aa_circle(hdc, cx, y + h / 2, knob_r, knob, knob_a, 0, 0.0, 0.0);
@@ -357,12 +515,28 @@ pub unsafe fn toggle(hdc: HDC, dpi: u32, x: i32, y: i32, anim: f32, hovered: boo
 }
 
 /// Checkbox with the left-to-right check animation (`progress` 0..1 while checking).
-pub unsafe fn checkbox(hdc: HDC, x: i32, y: i32, size: i32, checked: bool, hovered: bool, disabled: bool, progress: f32) {
+pub unsafe fn checkbox(
+    hdc: HDC,
+    x: i32,
+    y: i32,
+    size: i32,
+    checked: bool,
+    hovered: bool,
+    disabled: bool,
+    progress: f32,
+) {
     draw_aa_checkbox(hdc, x, y, size, checked, hovered, disabled, progress);
 }
 
 /// Win11 TextBox chrome; colours derived from the card colour.
-pub unsafe fn textbox_frame(hdc: HDC, dpi: u32, rc: &RECT, focused: bool, hovered: bool, disabled: bool) {
+pub unsafe fn textbox_frame(
+    hdc: HDC,
+    dpi: u32,
+    rc: &RECT,
+    focused: bool,
+    hovered: bool,
+    disabled: bool,
+) {
     let th = theme();
     let base = th.card_bg;
     let (white, black) = (0x00FF_FFFFu32, 0u32);
@@ -376,7 +550,11 @@ pub unsafe fn textbox_frame(hdc: HDC, dpi: u32, rc: &RECT, focused: bool, hovere
         } else {
             lerp_bgr(base, white, 0.06)
         };
-        (fill, lerp_bgr(base, white, 0.08), lerp_bgr(base, white, if disabled { 0.08 } else { 0.45 }))
+        (
+            fill,
+            lerp_bgr(base, white, 0.08),
+            lerp_bgr(base, white, if disabled { 0.08 } else { 0.45 }),
+        )
     } else {
         let fill = if disabled {
             lerp_bgr(base, black, 0.03)
@@ -387,12 +565,29 @@ pub unsafe fn textbox_frame(hdc: HDC, dpi: u32, rc: &RECT, focused: bool, hovere
         } else {
             lerp_bgr(base, black, 0.015)
         };
-        (fill, lerp_bgr(base, black, 0.07), lerp_bgr(base, black, if disabled { 0.07 } else { 0.45 }))
+        (
+            fill,
+            lerp_bgr(base, black, 0.07),
+            lerp_bgr(base, black, if disabled { 0.07 } else { 0.45 }),
+        )
     };
     round_box(hdc, rc, scale(8, dpi), fill, side);
-    let (col, h) = if focused && !disabled { (accent_bgr(), scale(2, dpi).max(2)) } else { (bottom, 1) };
+    let (col, h) = if focused && !disabled {
+        (accent_bgr(), scale(2, dpi).max(2))
+    } else {
+        (bottom, 1)
+    };
     let inset = scale(3, dpi);
-    fill_rect(hdc, &RECT { left: rc.left + inset, top: rc.bottom - h, right: rc.right - inset, bottom: rc.bottom }, col);
+    fill_rect(
+        hdc,
+        &RECT {
+            left: rc.left + inset,
+            top: rc.bottom - h,
+            right: rc.right - inset,
+            bottom: rc.bottom,
+        },
+        col,
+    );
 }
 
 /// Width reserved at the right of a text box for its clear button.
@@ -404,24 +599,58 @@ pub fn textbox_clear_w(dpi: u32) -> i32 {
 pub fn textbox_clear_rect(dpi: u32, box_rc: &RECT) -> RECT {
     let pad = scale(3, dpi);
     let bw = textbox_clear_w(dpi) - pad;
-    RECT { left: box_rc.right - pad - bw, top: box_rc.top + pad, right: box_rc.right - pad, bottom: box_rc.bottom - pad }
+    RECT {
+        left: box_rc.right - pad - bw,
+        top: box_rc.top + pad,
+        right: box_rc.right - pad,
+        bottom: box_rc.bottom - pad,
+    }
 }
 
 /// Clear ("X") button of a focused, non-empty text box.
-pub unsafe fn textbox_clear_button(hdc: HDC, fonts: &Fonts, dpi: u32, rc: &RECT, hovered: bool, pressed: bool) {
+pub unsafe fn textbox_clear_button(
+    hdc: HDC,
+    fonts: &Fonts,
+    dpi: u32,
+    rc: &RECT,
+    hovered: bool,
+    pressed: bool,
+) {
     let th = theme();
-    let base = if th.dark { lerp_bgr(th.card_bg, 0, 0.28) } else { 0x00FF_FFFF };
+    let base = if th.dark {
+        lerp_bgr(th.card_bg, 0, 0.28)
+    } else {
+        0x00FF_FFFF
+    };
     let fill = if pressed {
-        Some(if th.dark { lerp_bgr(base, 0xFFFFFF, 0.04) } else { lerp_bgr(base, 0, 0.03) })
+        Some(if th.dark {
+            lerp_bgr(base, 0xFFFFFF, 0.04)
+        } else {
+            lerp_bgr(base, 0, 0.03)
+        })
     } else if hovered {
-        Some(if th.dark { lerp_bgr(base, 0xFFFFFF, 0.08) } else { lerp_bgr(base, 0, 0.06) })
+        Some(if th.dark {
+            lerp_bgr(base, 0xFFFFFF, 0.08)
+        } else {
+            lerp_bgr(base, 0, 0.06)
+        })
     } else {
         None
     };
     if let Some(c) = fill {
         round_box(hdc, rc, scale(6, dpi), c, c);
     }
-    glyph(hdc, fonts.icon_small, GLYPH_CLEAR, rc, if pressed { th.text_muted } else { th.text_secondary });
+    glyph(
+        hdc,
+        fonts.icon_small,
+        GLYPH_CLEAR,
+        rc,
+        if pressed {
+            th.text_muted
+        } else {
+            th.text_secondary
+        },
+    );
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -453,9 +682,24 @@ pub unsafe fn info_bar(
 ) -> RECT {
     let th = theme();
     let (bg, border, icon_col, icon) = match severity {
-        Severity::Info => (crate::theme::accent_subtle_bg_bgr(), th.card_border, accent_text_bgr(), GLYPH_INFO),
-        Severity::Success => (th.success_bg, th.success_border, th.status_ok, GLYPH_COMPLETED),
-        Severity::Warning => (th.caution_bg, th.caution_border, th.status_warn, GLYPH_WARNING),
+        Severity::Info => (
+            crate::theme::accent_subtle_bg_bgr(),
+            th.card_border,
+            accent_text_bgr(),
+            GLYPH_INFO,
+        ),
+        Severity::Success => (
+            th.success_bg,
+            th.success_border,
+            th.status_ok,
+            GLYPH_COMPLETED,
+        ),
+        Severity::Warning => (
+            th.caution_bg,
+            th.caution_border,
+            th.status_warn,
+            GLYPH_WARNING,
+        ),
         Severity::Error => (th.caution_bg, th.caution_border, th.status_err, GLYPH_ERROR),
     };
     round_box(hdc, rc, scale(8, dpi), bg, border);
@@ -469,11 +713,33 @@ pub unsafe fn info_bar(
         right: rc.right - scale(44, dpi),
         bottom: rc.bottom - scale(8, dpi),
     };
-    let text_col = if matches!(severity, Severity::Warning | Severity::Error) && th.dark { th.caution_text } else { th.text_primary };
-    draw_text(hdc, message, &text_rc, text_col, fonts.body, DT_LEFT | DT_WORDBREAK);
-    let close = rect(rc.right - scale(38, dpi), rc.top + scale(6, dpi), scale(30, dpi), scale(28, dpi));
+    let text_col = if matches!(severity, Severity::Warning | Severity::Error) && th.dark {
+        th.caution_text
+    } else {
+        th.text_primary
+    };
+    draw_text(
+        hdc,
+        message,
+        &text_rc,
+        text_col,
+        fonts.body,
+        DT_LEFT | DT_WORDBREAK,
+    );
+    let close = rect(
+        rc.right - scale(38, dpi),
+        rc.top + scale(6, dpi),
+        scale(30, dpi),
+        scale(28, dpi),
+    );
     subtle_bg(hdc, dpi, &close, close_hovered, close_pressed, false);
-    glyph(hdc, fonts.icon_small, GLYPH_CANCEL, &close, subtle_text_color(close_hovered, close_pressed, false));
+    glyph(
+        hdc,
+        fonts.icon_small,
+        GLYPH_CANCEL,
+        &close,
+        subtle_text_color(close_hovered, close_pressed, false),
+    );
     close
 }
 
@@ -481,14 +747,27 @@ pub unsafe fn info_bar(
 pub unsafe fn modal_shadow(hdc: HDC, rc: &RECT, diameter: i32) {
     let dark = theme().dark;
     let layers: [(i32, i32, i32, u32); 3] = if dark {
-        [(3, 4, 2, 0x0013_1112), (3, 3, 1, 0x000E_0C0E), (2, 2, 0, 0x0008_0709)]
+        [
+            (3, 4, 2, 0x0013_1112),
+            (3, 3, 1, 0x000E_0C0E),
+            (2, 2, 0, 0x0008_0709),
+        ]
     } else {
-        [(3, 4, 2, 0x00C8_C8C8), (3, 3, 1, 0x00BE_BEBE), (2, 2, 0, 0x00B4_B4B4)]
+        [
+            (3, 4, 2, 0x00C8_C8C8),
+            (3, 3, 1, 0x00BE_BEBE),
+            (2, 2, 0, 0x00B4_B4B4),
+        ]
     };
     for (dx, dy, exp, col) in layers {
         round_box(
             hdc,
-            &RECT { left: rc.left + dx - exp, top: rc.top + dy - exp, right: rc.right + dx + exp, bottom: rc.bottom + dy + exp },
+            &RECT {
+                left: rc.left + dx - exp,
+                top: rc.top + dy - exp,
+                right: rc.right + dx + exp,
+                bottom: rc.bottom + dy + exp,
+            },
             diameter + exp,
             col,
             col,
@@ -497,11 +776,22 @@ pub unsafe fn modal_shadow(hdc: HDC, rc: &RECT, diameter: i32) {
 }
 
 /// Fluent scrollbar: track + thumb. Returns the thumb rectangle.
-pub unsafe fn scrollbar(hdc: HDC, dpi: u32, track: &RECT, scroll: i32, max_scroll: i32, dragging: bool) -> RECT {
+pub unsafe fn scrollbar(
+    hdc: HDC,
+    dpi: u32,
+    track: &RECT,
+    scroll: i32,
+    max_scroll: i32,
+    dragging: bool,
+) -> RECT {
     let th = theme();
     round_box(hdc, track, scale(6, dpi), th.scrollbar_track, th.divider);
     let thumb = scrollbar_thumb_rect(dpi, track, scroll, max_scroll);
-    let c = if dragging { th.text_dim } else { th.scrollbar_thumb };
+    let c = if dragging {
+        th.text_dim
+    } else {
+        th.scrollbar_thumb
+    };
     round_box(hdc, &thumb, scale(6, dpi), c, c);
     thumb
 }
@@ -511,18 +801,55 @@ pub fn scrollbar_thumb_rect(dpi: u32, track: &RECT, scroll: i32, max_scroll: i32
     let track_h = track.bottom - track.top;
     let view = track_h.max(1) as f32;
     let content = view + max_scroll.max(0) as f32;
-    let thumb_h = ((view / content) * track_h as f32).round().max(scale(30, dpi) as f32).min(track_h as f32) as i32;
-    let ratio = if max_scroll > 0 { scroll as f32 / max_scroll as f32 } else { 0.0 };
+    let thumb_h = ((view / content) * track_h as f32)
+        .round()
+        .max(scale(30, dpi) as f32)
+        .min(track_h as f32) as i32;
+    let ratio = if max_scroll > 0 {
+        scroll as f32 / max_scroll as f32
+    } else {
+        0.0
+    };
     let y = track.top + ((track_h - thumb_h) as f32 * ratio.clamp(0.0, 1.0)).round() as i32;
-    RECT { left: track.left + 1, top: y, right: track.right - 1, bottom: y + thumb_h }
+    RECT {
+        left: track.left + 1,
+        top: y,
+        right: track.right - 1,
+        bottom: y + thumb_h,
+    }
 }
 
 /// Status dot + label (e.g. "● 已啟用").
-pub unsafe fn status_dot(hdc: HDC, fonts: &Fonts, dpi: u32, x: i32, cy: i32, color_bgr: u32, label: &str) -> i32 {
+pub unsafe fn status_dot(
+    hdc: HDC,
+    fonts: &Fonts,
+    dpi: u32,
+    x: i32,
+    cy: i32,
+    color_bgr: u32,
+    label: &str,
+) -> i32 {
     let r = scale(4, dpi) as f32;
-    draw_aa_circle(hdc, x + scale(4, dpi), cy, r, crate::theme::bgr_to_rgb(color_bgr), 1.0, 0, 0.0, 0.0);
+    draw_aa_circle(
+        hdc,
+        x + scale(4, dpi),
+        cy,
+        r,
+        crate::theme::bgr_to_rgb(color_bgr),
+        1.0,
+        0,
+        0.0,
+        0.0,
+    );
     let tx = x + scale(14, dpi);
     let tw = crate::gdi::text_width(hdc, label, fonts.small);
-    draw_text(hdc, label, &rect(tx, cy - scale(10, dpi), tw + scale(4, dpi), scale(20, dpi)), color_bgr, fonts.small, LEFT_VC);
+    draw_text(
+        hdc,
+        label,
+        &rect(tx, cy - scale(10, dpi), tw + scale(4, dpi), scale(20, dpi)),
+        color_bgr,
+        fonts.small,
+        LEFT_VC,
+    );
     tx + tw - x
 }

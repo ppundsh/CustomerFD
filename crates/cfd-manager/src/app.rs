@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::Graphics::Gdi::InvalidateRect;
-use windows::Win32::UI::WindowsAndMessaging::{DestroyIcon, HICON, KillTimer, SetTimer};
+use windows::Win32::UI::WindowsAndMessaging::{DestroyIcon, KillTimer, SetTimer, HICON};
 
 pub const TIMER_ANIM: usize = 1;
 pub const TIMER_CARET: usize = 2;
@@ -172,11 +172,19 @@ pub struct ExpanderState {
 
 impl ExpanderState {
     fn new(expanded: bool) -> Self {
-        Self { expanded, tween: Tween::new(180), press: Tween::new(140) }
+        Self {
+            expanded,
+            tween: Tween::new(180),
+            press: Tween::new(140),
+        }
     }
     /// 0 = collapsed, 1 = expanded (eased).
     pub fn openness(&self) -> f32 {
-        let p = if self.tween.is_active() { ease_out_cubic(self.tween.raw()) } else { 1.0 };
+        let p = if self.tween.is_active() {
+            ease_out_cubic(self.tween.raw())
+        } else {
+            1.0
+        };
         if self.expanded {
             p
         } else {
@@ -294,7 +302,12 @@ pub fn with_state<R>(f: impl FnOnce(&mut AppState) -> R) -> Option<R> {
 }
 
 pub fn root_snapshot(cfg: &AppConfig) -> String {
-    serde_json::to_string(&(&cfg.root_folders, cfg.show_in_sidebar, cfg.hide_from_desktop)).unwrap_or_default()
+    serde_json::to_string(&(
+        &cfg.root_folders,
+        cfg.show_in_sidebar,
+        cfg.hide_from_desktop,
+    ))
+    .unwrap_or_default()
 }
 
 impl AppState {
@@ -302,7 +315,11 @@ impl AppState {
         let config = AppConfig::load();
         set_lang(config.ui_lang);
         let registered = is_registered();
-        let applied_snapshot = if registered { root_snapshot(&config) } else { String::new() };
+        let applied_snapshot = if registered {
+            root_snapshot(&config)
+        } else {
+            String::new()
+        };
         let mut toggles = HashMap::new();
         toggles.insert(ToggleId::ShowInSidebar, config.show_in_sidebar as u8 as f32);
         toggles.insert(ToggleId::HideDesktop, config.hide_from_desktop as u8 as f32);
@@ -375,9 +392,14 @@ impl AppState {
 
     /// Registers a hit region and returns its hover / press state for this frame.
     pub fn interact(&mut self, rect: RECT, action: Action, cursor: Cursor) -> Hot {
-        let hovered = !self.block_input && self.mouse_inside && contains(&rect, self.mouse.0, self.mouse.1);
+        let hovered =
+            !self.block_input && self.mouse_inside && contains(&rect, self.mouse.0, self.mouse.1);
         let pressed = hovered && self.pressed.as_ref() == Some(&action);
-        self.regions.push(Region { rect, action, cursor });
+        self.regions.push(Region {
+            rect,
+            action,
+            cursor,
+        });
         Hot { hovered, pressed }
     }
 
@@ -436,7 +458,10 @@ impl AppState {
     }
 
     pub fn show_info(&mut self, severity: Severity, msg: &str) {
-        self.info = Some(InfoState { severity, message: msg.to_string() });
+        self.info = Some(InfoState {
+            severity,
+            message: msg.to_string(),
+        });
         // SAFETY: timer on our own window.
         unsafe {
             let _ = KillTimer(self.hwnd, TIMER_INFO);
@@ -579,7 +604,13 @@ impl AppState {
         };
         self.unfocus();
         self.lang_open = false;
-        self.modal = Some(ModalState { confirm: c, title, body, ok_label: ok, danger });
+        self.modal = Some(ModalState {
+            confirm: c,
+            title,
+            body,
+            ok_label: ok,
+            danger,
+        });
     }
 
     pub fn register_now(&mut self) -> Result<(), String> {
@@ -609,7 +640,13 @@ impl AppState {
     /// Root-folder index used by subfolder entries of the selected root.
     pub fn sub_indices(&self) -> Vec<usize> {
         let rid = &self.root().id;
-        self.config.subfolders.iter().enumerate().filter(|(_, s)| &s.root_id == rid).map(|(i, _)| i).collect()
+        self.config
+            .subfolders
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| &s.root_id == rid)
+            .map(|(i, _)| i)
+            .collect()
     }
 }
 
@@ -619,7 +656,11 @@ pub unsafe fn handle_action(hwnd: HWND, action: Action) {
     match action {
         Action::BrowseIcon => {
             let filter = "Icon / Executable (*.ico;*.dll;*.exe)\0*.ico;*.dll;*.exe\0All Files (*.*)\0*.*\0\0";
-            if let Some(p) = sys::prompt_open_file(hwnd, tr("選擇圖示檔案 (.ico / .dll / .exe)", "Select Icon File"), filter) {
+            if let Some(p) = sys::prompt_open_file(
+                hwnd,
+                tr("選擇圖示檔案 (.ico / .dll / .exe)", "Select Icon File"),
+                filter,
+            ) {
                 with_state(|st| st.root_mut().icon = p);
             }
         }
@@ -642,12 +683,22 @@ pub unsafe fn handle_action(hwnd: HWND, action: Action) {
         }
         Action::ImportIcon => {
             let filter = "Images (*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif;*.ico)\0*.png;*.jpg;*.jpeg;*.bmp;*.webp;*.gif;*.ico\0All Files (*.*)\0*.*\0\0";
-            if let Some(p) = sys::prompt_open_file(hwnd, tr("選擇圖片轉換為圖示", "Select an image to convert to an icon"), filter) {
+            if let Some(p) = sys::prompt_open_file(
+                hwnd,
+                tr(
+                    "選擇圖片轉換為圖示",
+                    "Select an image to convert to an icon",
+                ),
+                filter,
+            ) {
                 with_state(|st| match import_image_as_ico(Path::new(&p)) {
                     Ok(ico) => {
                         st.root_mut().icon = ico.display().to_string();
                         st.custom_icons = list_custom_icons();
-                        st.ok(tr("已轉換並儲存自訂圖示。", "Custom icon converted and saved."));
+                        st.ok(tr(
+                            "已轉換並儲存自訂圖示。",
+                            "Custom icon converted and saved.",
+                        ));
                     }
                     Err(e) => st.err(&e),
                 });
@@ -660,7 +711,10 @@ pub unsafe fn handle_action(hwnd: HWND, action: Action) {
                     // Runs outside the borrow: it waits for the shell to come back.
                     let r = restart_explorer();
                     with_state(|st| match r {
-                        Ok(()) => st.ok(tr("已重新啟動 Windows 檔案總管。", "Windows Explorer restarted.")),
+                        Ok(()) => st.ok(tr(
+                            "已重新啟動 Windows 檔案總管。",
+                            "Windows Explorer restarted.",
+                        )),
                         Err(e) => st.err(&e),
                     });
                 } else {
@@ -739,7 +793,10 @@ fn confirmed(st: &mut AppState, c: Confirm) {
                 st.icon_previews.clear();
                 st.icons.clear();
                 let lang = st.config.ui_lang;
-                st.config = AppConfig { ui_lang: lang, ..AppConfig::default() };
+                st.config = AppConfig {
+                    ui_lang: lang,
+                    ..AppConfig::default()
+                };
                 st.selected_root = 0;
                 st.ok(tr(
                     "已清除所有登錄項目、設定檔與自訂圖示。",
@@ -757,7 +814,10 @@ fn confirmed(st: &mut AppState, c: Confirm) {
 }
 
 fn simple_action(st: &mut AppState, action: Action) {
-    if !matches!(action, Action::FocusField(_) | Action::ClearField(_) | Action::Block | Action::ScrollThumb) {
+    if !matches!(
+        action,
+        Action::FocusField(_) | Action::ClearField(_) | Action::Block | Action::ScrollThumb
+    ) {
         st.unfocus();
     }
     if !matches!(action, Action::LangButton | Action::SetLang(_)) {
@@ -815,7 +875,10 @@ fn simple_action(st: &mut AppState, action: Action) {
                     );
                 }
             }
-            None => st.err(tr("根資料夾已達上限（64 個）。", "The maximum of 64 root folders is reached.")),
+            None => st.err(tr(
+                "根資料夾已達上限（64 個）。",
+                "The maximum of 64 root folders is reached.",
+            )),
         },
         Action::Ask(c) => st.ask(c),
         Action::Toggle(id) => {
@@ -862,7 +925,10 @@ fn simple_action(st: &mut AppState, action: Action) {
             let name = st.sub_name.trim().to_string();
             let path = st.sub_path.trim().to_string();
             if name.is_empty() || path.is_empty() {
-                st.err(tr("請輸入子資料夾名稱與路徑。", "Please enter both a name and a path."));
+                st.err(tr(
+                    "請輸入子資料夾名稱與路徑。",
+                    "Please enter both a name and a path.",
+                ));
                 return;
             }
             let root_id = st.root().id.clone();
@@ -913,7 +979,11 @@ fn simple_action(st: &mut AppState, action: Action) {
             let up = matches!(action, Action::SubUp(_));
             let list = st.sub_indices();
             if let Some(pos) = list.iter().position(|&i| i == idx) {
-                let other = if up { pos.checked_sub(1) } else { (pos + 1 < list.len()).then_some(pos + 1) };
+                let other = if up {
+                    pos.checked_sub(1)
+                } else {
+                    (pos + 1 < list.len()).then_some(pos + 1)
+                };
                 if let Some(o) = other {
                     st.config.subfolders.swap(idx, list[o]);
                     if st.save() {
@@ -944,7 +1014,10 @@ fn simple_action(st: &mut AppState, action: Action) {
             unsafe { sys::shell_open(&dir.display().to_string()) };
         }
         Action::OpenInstallDir => {
-            if let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(PathBuf::from)) {
+            if let Some(dir) = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(PathBuf::from))
+            {
                 // SAFETY: shell open of our own folder.
                 unsafe { sys::shell_open(&dir.display().to_string()) };
             }
@@ -962,11 +1035,15 @@ fn simple_action(st: &mut AppState, action: Action) {
             unsafe { sys::shell_open(crate::REPO_URL) };
         }
         Action::OpenLicense => {
-            let local = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("LICENSE.txt")));
+            let local = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|d| d.join("LICENSE.txt")));
             match local.filter(|p| p.exists()) {
                 // SAFETY: shell open of our own file / constant URL.
                 Some(p) => unsafe { sys::shell_open(&p.display().to_string()) },
-                None => unsafe { sys::shell_open(&format!("{}/blob/main/LICENSE", crate::REPO_URL)) },
+                None => unsafe {
+                    sys::shell_open(&format!("{}/blob/main/LICENSE", crate::REPO_URL))
+                },
             }
         }
         Action::DismissInfo => st.info = None,
@@ -1034,4 +1111,3 @@ pub fn step_animations(st: &mut AppState) -> bool {
     }
     active
 }
-

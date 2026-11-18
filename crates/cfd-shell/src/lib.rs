@@ -12,8 +12,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use windows::core::{implement, IUnknown, Interface, Result, GUID, HRESULT};
 use windows::Win32::Foundation::{
-    CLASS_E_CLASSNOTAVAILABLE, CLASS_E_NOAGGREGATION, E_FAIL, E_POINTER, HMODULE, MAX_PATH, S_FALSE,
-    S_OK,
+    CLASS_E_CLASSNOTAVAILABLE, CLASS_E_NOAGGREGATION, E_FAIL, E_POINTER, HMODULE, MAX_PATH,
+    S_FALSE, S_OK,
 };
 use windows::Win32::System::Com::{IClassFactory, IClassFactory_Impl};
 use windows::Win32::System::LibraryLoader::GetModuleFileNameW;
@@ -94,6 +94,10 @@ fn ffi_guard(f: impl FnOnce() -> HRESULT) -> HRESULT {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or(E_FAIL)
 }
 
+/// COM entry point.
+///
+/// # Safety
+/// Called by COM with valid (or null, which is rejected) pointers.
 #[no_mangle]
 pub unsafe extern "system" fn DllGetClassObject(
     rclsid: *const GUID,
@@ -103,7 +107,11 @@ pub unsafe extern "system" fn DllGetClassObject(
     ffi_guard(|| get_class_object(rclsid, riid, ppv))
 }
 
-unsafe fn get_class_object(rclsid: *const GUID, riid: *const GUID, ppv: *mut *mut c_void) -> HRESULT {
+unsafe fn get_class_object(
+    rclsid: *const GUID,
+    riid: *const GUID,
+    ppv: *mut *mut c_void,
+) -> HRESULT {
     if rclsid.is_null() || riid.is_null() || ppv.is_null() {
         return E_POINTER;
     }
@@ -148,7 +156,9 @@ fn current_dll_path() -> Option<PathBuf> {
     if len == 0 {
         return None;
     }
-    Some(PathBuf::from(String::from_utf16_lossy(&buf[..len as usize])))
+    Some(PathBuf::from(String::from_utf16_lossy(
+        &buf[..len as usize],
+    )))
 }
 
 #[no_mangle]

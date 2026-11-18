@@ -61,7 +61,12 @@ pub fn compile_pe_resources(meta: &PeMetadata) {
 
     // Version resource is derived from the crate version (workspace `version` in Cargo.toml),
     // so `bump-version.ps1` is the only place a release number ever has to change.
-    let ver = |k: &str| env::var(k).ok().and_then(|v| v.parse::<u16>().ok()).unwrap_or(0);
+    let ver = |k: &str| {
+        env::var(k)
+            .ok()
+            .and_then(|v| v.parse::<u16>().ok())
+            .unwrap_or(0)
+    };
     let (v_major, v_minor, v_patch) = (
         ver("CARGO_PKG_VERSION_MAJOR"),
         ver("CARGO_PKG_VERSION_MINOR"),
@@ -150,7 +155,7 @@ fn find_rc_exe() -> Option<PathBuf> {
     // Derive SDK roots from the build machine's environment instead of hard-coding paths.
     let sdk_roots: Vec<PathBuf> = ["ProgramFiles(x86)", "ProgramFiles"]
         .iter()
-        .filter_map(|v| std::env::var_os(v))
+        .filter_map(std::env::var_os)
         .map(|p| PathBuf::from(p).join("Windows Kits").join("10").join("bin"))
         .collect();
     for root in &sdk_roots {

@@ -43,7 +43,11 @@ pub enum Phase {
     Checking,
     UpToDate,
     Available(Manifest),
-    Downloading { done: u64, total: u64, version: String },
+    Downloading {
+        done: u64,
+        total: u64,
+        version: String,
+    },
     Launching,
     Error(String),
 }
@@ -139,12 +143,17 @@ fn fetch_manifest() -> Result<Manifest, String> {
 
 fn verify_signature(data: &[u8], signature_text: &str) -> Result<(), String> {
     let key = normalize_public_key(PUBLIC_KEY_FILE).ok_or("update signing key missing")?;
-    let pk = minisign_verify::PublicKey::from_base64(&key).map_err(|e| format!("public key: {e}"))?;
-    let sig = minisign_verify::Signature::decode(signature_text).map_err(|e| format!("signature: {e}"))?;
+    let pk =
+        minisign_verify::PublicKey::from_base64(&key).map_err(|e| format!("public key: {e}"))?;
+    let sig = minisign_verify::Signature::decode(signature_text)
+        .map_err(|e| format!("signature: {e}"))?;
     pk.verify(data, &sig, true).map_err(|e| {
         format!(
             "{}: {e}",
-            crate::tr("安裝檔簽章驗證失敗，已中止更新", "Installer signature verification failed; update aborted")
+            crate::tr(
+                "安裝檔簽章驗證失敗，已中止更新",
+                "Installer signature verification failed; update aborted"
+            )
         )
     })
 }
@@ -168,10 +177,14 @@ fn verify_approval(data: &[u8], m: &Manifest) -> Result<(), String> {
         return Err(fail("no approval in latest.json"));
     }
     let statement = approval_statement(&m.version, &hex(&sha256(data)));
-    let check = prepare_approval_check(&m.approval, statement.as_bytes(), &approvers).map_err(|e| fail(&e))?;
-    let pk = ed25519_compact::PublicKey::from_slice(&check.public_key).map_err(|_| fail("bad approver key"))?;
-    let sig = ed25519_compact::Signature::from_slice(&check.signature).map_err(|_| fail("bad signature"))?;
-    pk.verify(&check.message, &sig).map_err(|_| fail("signature does not match"))
+    let check = prepare_approval_check(&m.approval, statement.as_bytes(), &approvers)
+        .map_err(|e| fail(&e))?;
+    let pk = ed25519_compact::PublicKey::from_slice(&check.public_key)
+        .map_err(|_| fail("bad approver key"))?;
+    let sig = ed25519_compact::Signature::from_slice(&check.signature)
+        .map_err(|_| fail("bad signature"))?;
+    pk.verify(&check.message, &sig)
+        .map_err(|_| fail("signature does not match"))
 }
 
 /// True when this build requires a YubiKey approval for updates.
@@ -181,13 +194,27 @@ pub fn requires_approval() -> bool {
 
 fn download_verify_launch(hwnd: usize, m: &Manifest) -> Result<(), String> {
     let (host, path) = split_https_url(&m.url).ok_or("invalid installer URL")?;
-    set_phase(hwnd, Phase::Downloading { done: 0, total: 0, version: m.version.clone() });
+    set_phase(
+        hwnd,
+        Phase::Downloading {
+            done: 0,
+            total: 0,
+            version: m.version.clone(),
+        },
+    );
     let mut last_pct = u64::MAX;
     let data = http_get(host, path, MAX_INSTALLER_BYTES, |done, total| {
-        let pct = if total > 0 { done * 100 / total } else { done >> 20 };
+        let pct = (done * 100).checked_div(total).unwrap_or(done >> 20);
         if pct != last_pct {
             last_pct = pct;
-            set_phase(hwnd, Phase::Downloading { done, total, version: m.version.clone() });
+            set_phase(
+                hwnd,
+                Phase::Downloading {
+                    done,
+                    total,
+                    version: m.version.clone(),
+                },
+            );
         }
     })?;
     if data.len() < 2 || &data[..2] != b"MZ" {
@@ -204,7 +231,10 @@ fn download_verify_launch(hwnd: usize, m: &Manifest) -> Result<(), String> {
             let _ = std::fs::remove_file(e.path());
         }
     }
-    let exe = dir.join(format!("CustomerFD-Setup-{}.exe", sanitize_version_for_file(&m.version)));
+    let exe = dir.join(format!(
+        "CustomerFD-Setup-{}.exe",
+        sanitize_version_for_file(&m.version)
+    ));
     std::fs::write(&exe, &data).map_err(|e| format!("{}: {e}", exe.display()))?;
 
     let install_dir = std::env::current_exe()
@@ -222,14 +252,24 @@ fn download_verify_launch(hwnd: usize, m: &Manifest) -> Result<(), String> {
 /// Opens the release page (for the given version, or the list of releases) in the browser.
 pub fn open_release_page(version: Option<&str>) {
     let url = match version {
-        Some(v) => format!("{RELEASES_PAGE}/tag/v{}", sanitize_version_for_file(v.trim_start_matches(['v', 'V']))),
+        Some(v) => format!(
+            "{RELEASES_PAGE}/tag/v{}",
+            sanitize_version_for_file(v.trim_start_matches(['v', 'V']))
+        ),
         None => RELEASES_PAGE.to_string(),
     };
     let op = wide("open");
     let file = wide(&url);
     // SAFETY: NUL-terminated buffers that outlive the call.
     unsafe {
-        shell_execute_w(std::ptr::null_mut(), op.as_ptr(), file.as_ptr(), std::ptr::null(), std::ptr::null(), 1);
+        shell_execute_w(
+            std::ptr::null_mut(),
+            op.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            1,
+        );
     }
 }
 
@@ -255,7 +295,10 @@ fn shell_execute(exe: &std::path::Path, args: &str) -> Result<(), String> {
     if r as isize > 32 {
         Ok(())
     } else {
-        Err(format!("failed to start the installer (code {})", r as isize))
+        Err(format!(
+            "failed to start the installer (code {})",
+            r as isize
+        ))
     }
 }
 
@@ -266,8 +309,19 @@ type HInternet = *mut c_void;
 
 #[link(name = "winhttp")]
 extern "system" {
-    fn WinHttpOpen(agent: *const u16, access: u32, proxy: *const u16, bypass: *const u16, flags: u32) -> HInternet;
-    fn WinHttpConnect(session: HInternet, server: *const u16, port: u16, reserved: u32) -> HInternet;
+    fn WinHttpOpen(
+        agent: *const u16,
+        access: u32,
+        proxy: *const u16,
+        bypass: *const u16,
+        flags: u32,
+    ) -> HInternet;
+    fn WinHttpConnect(
+        session: HInternet,
+        server: *const u16,
+        port: u16,
+        reserved: u32,
+    ) -> HInternet;
     fn WinHttpOpenRequest(
         connect: HInternet,
         verb: *const u16,
@@ -295,8 +349,19 @@ extern "system" {
         buffer_len: *mut u32,
         index: *mut u32,
     ) -> i32;
-    fn WinHttpReadData(request: HInternet, buffer: *mut c_void, to_read: u32, read: *mut u32) -> i32;
-    fn WinHttpSetTimeouts(handle: HInternet, resolve: i32, connect: i32, send: i32, receive: i32) -> i32;
+    fn WinHttpReadData(
+        request: HInternet,
+        buffer: *mut c_void,
+        to_read: u32,
+        read: *mut u32,
+    ) -> i32;
+    fn WinHttpSetTimeouts(
+        handle: HInternet,
+        resolve: i32,
+        connect: i32,
+        send: i32,
+        receive: i32,
+    ) -> i32;
     fn WinHttpCloseHandle(handle: HInternet) -> i32;
 }
 
@@ -343,7 +408,12 @@ fn last_err(what: &str) -> String {
 }
 
 /// HTTPS GET with redirects followed by WinHTTP (GitHub release assets redirect to a CDN).
-fn http_get(host: &str, path: &str, max_bytes: u64, mut progress: impl FnMut(u64, u64)) -> Result<Vec<u8>, String> {
+fn http_get(
+    host: &str,
+    path: &str,
+    max_bytes: u64,
+    mut progress: impl FnMut(u64, u64),
+) -> Result<Vec<u8>, String> {
     let agent = wide(concat!("CustomerFD-Updater/", env!("CARGO_PKG_VERSION")));
     let host_w = wide(host);
     let path_w = wide(path);
@@ -360,7 +430,13 @@ fn http_get(host: &str, path: &str, max_bytes: u64, mut progress: impl FnMut(u64
         );
         if session.is_null() {
             // Windows 8.0 and older do not know AUTOMATIC_PROXY.
-            session = WinHttpOpen(agent.as_ptr(), WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, std::ptr::null(), std::ptr::null(), 0);
+            session = WinHttpOpen(
+                agent.as_ptr(),
+                WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+            );
         }
         let session = Handle(session);
         if session.0.is_null() {
@@ -384,10 +460,16 @@ fn http_get(host: &str, path: &str, max_bytes: u64, mut progress: impl FnMut(u64
             return Err(last_err("WinHttpOpenRequest"));
         }
         if WinHttpSendRequest(request.0, std::ptr::null(), 0, std::ptr::null(), 0, 0, 0) == 0 {
-            return Err(last_err(crate::tr("無法連線到 GitHub", "Cannot reach GitHub")));
+            return Err(last_err(crate::tr(
+                "無法連線到 GitHub",
+                "Cannot reach GitHub",
+            )));
         }
         if WinHttpReceiveResponse(request.0, std::ptr::null_mut()) == 0 {
-            return Err(last_err(crate::tr("無法連線到 GitHub", "Cannot reach GitHub")));
+            return Err(last_err(crate::tr(
+                "無法連線到 GitHub",
+                "Cannot reach GitHub",
+            )));
         }
         let mut status: u32 = 0;
         let mut len = 4u32;
@@ -403,7 +485,11 @@ fn http_get(host: &str, path: &str, max_bytes: u64, mut progress: impl FnMut(u64
             return Err(last_err("HTTP status"));
         }
         if status == 404 {
-            return Err(crate::tr("找不到發行版本資訊（latest.json）", "Release manifest (latest.json) not found").into());
+            return Err(crate::tr(
+                "找不到發行版本資訊（latest.json）",
+                "Release manifest (latest.json) not found",
+            )
+            .into());
         }
         if status != 200 {
             return Err(format!("HTTP {status}"));
@@ -425,7 +511,13 @@ fn http_get(host: &str, path: &str, max_bytes: u64, mut progress: impl FnMut(u64
         let mut buf = vec![0u8; 64 * 1024];
         loop {
             let mut read: u32 = 0;
-            if WinHttpReadData(request.0, buf.as_mut_ptr() as *mut c_void, buf.len() as u32, &mut read) == 0 {
+            if WinHttpReadData(
+                request.0,
+                buf.as_mut_ptr() as *mut c_void,
+                buf.len() as u32,
+                &mut read,
+            ) == 0
+            {
                 return Err(last_err("download"));
             }
             if read == 0 {

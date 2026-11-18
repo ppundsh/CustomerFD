@@ -23,7 +23,10 @@ pub struct Tween {
 
 impl Tween {
     pub const fn new(ms: u64) -> Self {
-        Self { started: None, dur: Duration::from_millis(ms) }
+        Self {
+            started: None,
+            dur: Duration::from_millis(ms),
+        }
     }
     pub fn start(&mut self) {
         self.started = Some(Instant::now());
@@ -34,7 +37,9 @@ impl Tween {
     /// Raw linear progress; 1.0 when idle or finished.
     pub fn raw(&self) -> f32 {
         match self.started {
-            Some(t) if !self.dur.is_zero() => (t.elapsed().as_secs_f32() / self.dur.as_secs_f32()).clamp(0.0, 1.0),
+            Some(t) if !self.dur.is_zero() => {
+                (t.elapsed().as_secs_f32() / self.dur.as_secs_f32()).clamp(0.0, 1.0)
+            }
             _ => 1.0,
         }
     }

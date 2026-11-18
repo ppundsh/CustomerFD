@@ -18,7 +18,10 @@ mod updater;
 
 pub use i18n::tr;
 
-use app::{handle_action, with_state, Action, AppState, Cursor, Field, STATE, TIMER_ANIM, TIMER_CARET, TIMER_INFO};
+use app::{
+    handle_action, with_state, Action, AppState, Cursor, Field, STATE, TIMER_ANIM, TIMER_CARET,
+    TIMER_INFO,
+};
 use cfd_core::icon::create_app_hicon;
 use cfd_ui::backdrop::apply_frosted_backdrop;
 use cfd_ui::scale;
@@ -33,7 +36,8 @@ use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTME
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::HiDpi::{
-    GetDpiForSystem, GetDpiForWindow, SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+    GetDpiForSystem, GetDpiForWindow, SetProcessDpiAwarenessContext,
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT,
@@ -46,7 +50,10 @@ const WM_DWMCOLORIZATIONCOLORCHANGED: u32 = 0x0320;
 const WM_MOUSELEAVE: u32 = 0x02A3;
 
 fn lparam_xy(l: LPARAM) -> (i32, i32) {
-    ((l.0 & 0xFFFF) as i16 as i32, ((l.0 >> 16) & 0xFFFF) as i16 as i32)
+    (
+        (l.0 & 0xFFFF) as i16 as i32,
+        ((l.0 >> 16) & 0xFFFF) as i16 as i32,
+    )
 }
 
 unsafe fn invalidate(hwnd: HWND) {
@@ -60,7 +67,12 @@ unsafe fn to_ui(hwnd: HWND, l: LPARAM) -> (i32, i32) {
 }
 
 unsafe fn update_hover(st: &mut AppState) -> bool {
-    let new = if st.mouse_inside { st.region_at(st.mouse.0, st.mouse.1).map(|r| r.action.clone()) } else { None };
+    let new = if st.mouse_inside {
+        st.region_at(st.mouse.0, st.mouse.1)
+            .map(|r| r.action.clone())
+    } else {
+        None
+    };
     if new != st.hover_action {
         st.hover_action = new;
         true
@@ -103,7 +115,11 @@ unsafe fn on_mouse_down(hwnd: HWND, l: LPARAM) {
             }
             _ => {}
         }
-        if !matches!(action, Some(Action::FocusField(_)) | Some(Action::ScrollThumb)) && action.is_some() {
+        if !matches!(
+            action,
+            Some(Action::FocusField(_)) | Some(Action::ScrollThumb)
+        ) && action.is_some()
+        {
             let _ = SetCapture(hwnd);
         }
         st.pressed = action;
@@ -120,7 +136,15 @@ unsafe fn on_mouse_up(hwnd: HWND, l: LPARAM) {
         let pressed = st.pressed.take();
         let under = st.region_at(x, y).map(|r| r.action.clone());
         match pressed {
-            Some(a) if Some(&a) == under.as_ref() && !matches!(a, Action::FocusField(_) | Action::ScrollThumb | Action::Block) => Some(a),
+            Some(a)
+                if Some(&a) == under.as_ref()
+                    && !matches!(
+                        a,
+                        Action::FocusField(_) | Action::ScrollThumb | Action::Block
+                    ) =>
+            {
+                Some(a)
+            }
             _ => None,
         }
     })
@@ -134,7 +158,12 @@ unsafe fn on_mouse_up(hwnd: HWND, l: LPARAM) {
 
 unsafe fn on_mouse_move(hwnd: HWND, l: LPARAM) {
     let (x, y) = to_ui(hwnd, l);
-    let mut tme = TRACKMOUSEEVENT { cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32, dwFlags: TME_LEAVE, hwndTrack: hwnd, dwHoverTime: 0 };
+    let mut tme = TRACKMOUSEEVENT {
+        cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+        dwFlags: TME_LEAVE,
+        hwndTrack: hwnd,
+        dwHoverTime: 0,
+    };
     let _ = TrackMouseEvent(&mut tme);
     let repaint = with_state(|st| {
         st.mouse = (x, y);
@@ -142,12 +171,24 @@ unsafe fn on_mouse_move(hwnd: HWND, l: LPARAM) {
         let mut repaint = update_hover(st) || st.pressed.is_some();
         if let Some((y0, s0)) = st.thumb_drag {
             let track_h = (st.scroll_track.bottom - st.scroll_track.top).max(1);
-            let thumb = cfd_ui::widgets::scrollbar_thumb_rect(st.dpi, &st.scroll_track, st.scroll_y, st.max_scroll);
+            let thumb = cfd_ui::widgets::scrollbar_thumb_rect(
+                st.dpi,
+                &st.scroll_track,
+                st.scroll_y,
+                st.max_scroll,
+            );
             let free = (track_h - (thumb.bottom - thumb.top)).max(1);
-            st.scroll_y = (s0 + ((y - y0) as i64 * st.max_scroll as i64 / free as i64) as i32).clamp(0, st.max_scroll);
+            st.scroll_y = (s0 + ((y - y0) as i64 * st.max_scroll as i64 / free as i64) as i32)
+                .clamp(0, st.max_scroll);
             repaint = true;
         }
-        if st.focused.is_some() && st.edits.get(&st.focused.unwrap()).map(|e| e.dragging).unwrap_or(false) {
+        if st.focused.is_some()
+            && st
+                .edits
+                .get(&st.focused.unwrap())
+                .map(|e| e.dragging)
+                .unwrap_or(false)
+        {
             edit::mouse_drag(st, x);
             repaint = true;
         }
@@ -164,7 +205,11 @@ unsafe fn set_cursor(hwnd: HWND) -> bool {
         if !st.mouse_inside || st.mouse.1 < 0 {
             return None;
         }
-        Some(st.region_at(st.mouse.0, st.mouse.1).map(|r| r.cursor).unwrap_or(Cursor::Arrow))
+        Some(
+            st.region_at(st.mouse.0, st.mouse.1)
+                .map(|r| r.cursor)
+                .unwrap_or(Cursor::Arrow),
+        )
     })
     .flatten();
     let Some(kind) = kind else { return false };
@@ -201,7 +246,9 @@ unsafe fn on_key(hwnd: HWND, vk: u32) -> bool {
         match edit::key_down(st, hwnd, vk) {
             edit::KeyResult::Handled => Next::Handled,
             edit::KeyResult::NotHandled => Next::None,
-            edit::KeyResult::Submit(Field::SubName) | edit::KeyResult::Submit(Field::SubPath) => Next::Act(Action::SaveSub),
+            edit::KeyResult::Submit(Field::SubName) | edit::KeyResult::Submit(Field::SubPath) => {
+                Next::Act(Action::SaveSub)
+            }
             edit::KeyResult::Submit(_) => {
                 st.unfocus();
                 Next::Handled
@@ -222,7 +269,12 @@ unsafe fn on_key(hwnd: HWND, vk: u32) -> bool {
     }
 }
 
-unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+unsafe extern "system" fn wnd_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
     if let Some(r) = handle_frame_message(hwnd, msg, wparam, lparam, render::TITLEBAR_H) {
         return r;
     }
@@ -258,7 +310,15 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                 st.icon_previews.clear();
             });
             let r = &*(lparam.0 as *const RECT);
-            let _ = SetWindowPos(hwnd, None, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
+            let _ = SetWindowPos(
+                hwnd,
+                None,
+                r.left,
+                r.top,
+                r.right - r.left,
+                r.bottom - r.top,
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            );
             invalidate(hwnd);
             LRESULT(0)
         }
@@ -318,7 +378,8 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
             thread_local!(static HIGH: std::cell::Cell<Option<u16>> = const { std::cell::Cell::new(None) });
             let handled = HIGH.with(|h| {
                 let mut pending = h.get();
-                let r = with_state(|st| edit::char_input(st, wparam.0 as u16, &mut pending)).unwrap_or(false);
+                let r = with_state(|st| edit::char_input(st, wparam.0 as u16, &mut pending))
+                    .unwrap_or(false);
                 h.set(pending);
                 r
             });
@@ -341,7 +402,18 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
                 TIMER_INFO => {
                     let _ = KillTimer(hwnd, TIMER_INFO);
                     with_state(|st| {
-                        if st.info.as_ref().map(|i| !matches!(i.severity, cfd_ui::widgets::Severity::Error | cfd_ui::widgets::Severity::Warning)).unwrap_or(false) {
+                        if st
+                            .info
+                            .as_ref()
+                            .map(|i| {
+                                !matches!(
+                                    i.severity,
+                                    cfd_ui::widgets::Severity::Error
+                                        | cfd_ui::widgets::Severity::Warning
+                                )
+                            })
+                            .unwrap_or(false)
+                        {
                             st.info = None;
                         }
                     });
@@ -383,6 +455,10 @@ unsafe fn activate_existing() -> bool {
     }
 }
 
+/// `MAKEINTRESOURCEW(1)`: the application icon resource id.
+#[allow(clippy::manual_dangling_ptr)]
+const MAKEINTRESOURCE_1: *const u16 = 1 as *const u16;
+
 fn main() {
     // SAFETY: standard Win32 application start-up on the UI thread.
     unsafe {
@@ -394,7 +470,9 @@ fn main() {
         refresh_system_theme(None);
 
         let hinst = GetModuleHandleW(None).unwrap_or_default();
-        let hicon = LoadIconW(hinst, PCWSTR(1 as *const u16)).or_else(|_| create_app_hicon(accent_rgb()).ok_or(())).unwrap_or_default();
+        let hicon = LoadIconW(hinst, PCWSTR(MAKEINTRESOURCE_1))
+            .or_else(|_| create_app_hicon(accent_rgb()).ok_or(()))
+            .unwrap_or_default();
         let wc = WNDCLASSW {
             style: CS_DBLCLKS,
             lpfnWndProc: Some(wnd_proc),
@@ -409,7 +487,12 @@ fn main() {
         let dpi = GetDpiForSystem().max(96);
         let (w, h) = (scale(1040, dpi), scale(760, dpi));
         let mut work = RECT::default();
-        let _ = SystemParametersInfoW(SPI_GETWORKAREA, 0, Some(&mut work as *mut RECT as *mut _), SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0));
+        let _ = SystemParametersInfoW(
+            SPI_GETWORKAREA,
+            0,
+            Some(&mut work as *mut RECT as *mut _),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        );
         let (w, h) = (w.min(work.right - work.left), h.min(work.bottom - work.top));
         let x = work.left + ((work.right - work.left) - w) / 2;
         let y = work.top + ((work.bottom - work.top) - h) / 2;
@@ -431,11 +514,24 @@ fn main() {
             return;
         };
         refresh_system_theme(Some(hwnd));
-        let margins = MARGINS { cxLeftWidth: -1, cxRightWidth: -1, cyTopHeight: -1, cyBottomHeight: -1 };
+        let margins = MARGINS {
+            cxLeftWidth: -1,
+            cxRightWidth: -1,
+            cyTopHeight: -1,
+            cyBottomHeight: -1,
+        };
         let _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
         apply_frosted_backdrop(hwnd);
         // Recompute the frame now that the client area covers the caption.
-        let _ = SetWindowPos(hwnd, None, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER);
+        let _ = SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            0,
+            0,
+            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER,
+        );
         let _ = ShowWindow(hwnd, SW_SHOW);
         with_state(app::maybe_auto_check);
 

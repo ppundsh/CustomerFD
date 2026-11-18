@@ -4,7 +4,10 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{CreateIconIndirect, HICON, ICONINFO};
 
-/// Creates a clean 32x32 folder-themed HICON for the CustomerFD Control Center window.
+/// Creates a clean 32x32 folder-themed HICON (fallback window icon).
+///
+/// # Safety
+/// Plain GDI/User32 object creation; the caller owns the returned icon.
 pub unsafe fn create_app_hicon(accent_rgb: u32) -> Option<HICON> {
     let size = 32i32;
     let mut bgra = vec![0u8; (size * size * 4) as usize];
@@ -24,11 +27,11 @@ pub unsafe fn create_app_hicon(accent_rgb: u32) -> Option<HICON> {
             let fy = y as f32 + 0.5;
 
             // Rounded folder tab (top-left): x in [3..15], y in [5..11]
-            let in_tab = fx >= 3.0 && fx <= 15.0 && fy >= 5.0 && fy <= 12.0;
+            let in_tab = (3.0..=15.0).contains(&fx) && (5.0..=12.0).contains(&fy);
             // Folder back body: x in [3..29], y in [8..26]
-            let in_back = fx >= 3.0 && fx <= 29.0 && fy >= 8.0 && fy <= 26.0;
+            let in_back = (3.0..=29.0).contains(&fx) && (8.0..=26.0).contains(&fy);
             // Folder front body: x in [3..29], y in [11..27]
-            let in_front = fx >= 3.0 && fx <= 29.0 && fy >= 11.0 && fy <= 27.0;
+            let in_front = (3.0..=29.0).contains(&fx) && (11.0..=27.0).contains(&fy);
 
             let idx = ((y * size + x) * 4) as usize;
             if in_front {
@@ -88,8 +91,8 @@ pub unsafe fn create_app_hicon(accent_rgb: u32) -> Option<HICON> {
         ..Default::default()
     };
     let mut mask_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
-    let hbmp_mask: HBITMAP = CreateDIBSection(dc, &mask_bmi, DIB_RGB_COLORS, &mut mask_ptr, None, 0)
-        .unwrap_or_default();
+    let hbmp_mask: HBITMAP =
+        CreateDIBSection(dc, &mask_bmi, DIB_RGB_COLORS, &mut mask_ptr, None, 0).unwrap_or_default();
 
     let icon_info = ICONINFO {
         fIcon: true.into(),
