@@ -42,10 +42,21 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "cfd-installer build failed ($LASTEXITCODE)" }
 
     New-Item -ItemType Directory -Force -Path $distDir | Out-Null
+    # Explorer keeps a registered cfd_shell.dll loaded: rename a locked file out of the way.
+    function Copy-Replacing([string]$src, [string]$dst) {
+        try { Copy-Item -Force $src $dst -ErrorAction Stop }
+        catch {
+            $old = "$dst.$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()).old"
+            Rename-Item -Path $dst -NewName (Split-Path -Leaf $old) -ErrorAction Stop
+            Copy-Item -Force $src $dst -ErrorAction Stop
+        }
+    }
+    Get-ChildItem $distDir -Filter "*.old" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
     $setupDst = Join-Path $distDir "CustomerFD-Setup.exe"
-    Copy-Item -Force (Join-Path $relDir "cfd-installer.exe") $setupDst
-    Copy-Item -Force (Join-Path $relDir "cfd_shell.dll") $distDir
-    Copy-Item -Force (Join-Path $relDir "cfd-manager.exe") $distDir
+    Copy-Replacing (Join-Path $relDir "cfd-installer.exe") $setupDst
+    Copy-Replacing (Join-Path $relDir "cfd_shell.dll") (Join-Path $distDir "cfd_shell.dll")
+    Copy-Replacing (Join-Path $relDir "cfd-manager.exe") (Join-Path $distDir "cfd-manager.exe")
+    Remove-Item (Join-Path $distDir "uninstall.ps1") -ErrorAction SilentlyContinue
 
     # ---- Privacy gate -------------------------------------------------------------------------
     Write-Host "==> Scanning release binaries for embedded build-machine paths..." -ForegroundColor Cyan
@@ -76,7 +87,7 @@ try {
     }
 
     Write-Host "`n==> Build artifacts:" -ForegroundColor Green
-    Get-Item (Join-Path $distDir "*") | Select-Object Name, Length, LastWriteTime | Format-Table -AutoSize
+    Get-Item (Join-Path $distDir "*") -Exclude "*.old" | Select-Object Name, Length, LastWriteTime | Format-Table -AutoSize
 }
 finally {
     $env:RUSTFLAGS = $savedRustFlags
