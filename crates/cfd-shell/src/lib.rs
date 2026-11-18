@@ -89,6 +89,33 @@ pub extern "system" fn DllMain(
     true
 }
 
+/// Opt-in diagnostics: when `%LOCALAPPDATA%\CustomerFD\shell-trace.enabled` exists (checked once
+/// per process, so restart Explorer after creating it), calls are appended to `shell-trace.log`
+/// in the same folder. Off by default; costs one file-exists check per process.
+pub(crate) fn trace(msg: impl FnOnce() -> String) {
+    use std::io::Write;
+    static LOG: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+    let path = LOG.get_or_init(|| {
+        let dir = cfd_core::config::config_dir();
+        dir.join("shell-trace.enabled")
+            .exists()
+            .then(|| dir.join("shell-trace.log"))
+    });
+    if let Some(p) = path {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(p)
+        {
+            let ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0);
+            let _ = writeln!(f, "{ms} pid={} {}", std::process::id(), msg());
+        }
+    }
+}
+
 /// Runs `f` and converts a panic into `E_FAIL`: a panic must never unwind into explorer.exe.
 fn ffi_guard(f: impl FnOnce() -> HRESULT) -> HRESULT {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or(E_FAIL)

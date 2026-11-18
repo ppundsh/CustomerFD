@@ -19,8 +19,8 @@ use windows::Win32::UI::Shell::{
     IDefaultExtractIconInit, IEnumIDList, IExtractIconW, ILCombine, ILFree, IPersistFolder,
     IPersistFolder2, IPersistFolder2_Impl, IPersistFolder3, IPersistFolder_Impl, IShellFolder,
     IShellFolder_Impl, IShellView, SHCreateDefaultExtractIcon, SHCreateShellFolderView,
-    SHGetDesktopFolder, PERSIST_FOLDER_TARGET_INFO, SFV_CREATE, SHCONTF_FOLDERS, SHGDN_FORPARSING,
-    SHGDN_INFOLDER,
+    SHGetDesktopFolder, SHGetNameFromIDList, PERSIST_FOLDER_TARGET_INFO, SFV_CREATE,
+    SHCONTF_FOLDERS, SHGDN_FORPARSING, SHGDN_INFOLDER, SIGDN_DESKTOPABSOLUTEPARSING,
 };
 
 const SFGAO_CANCOPY: u32 = 0x0000_0001;
@@ -28,7 +28,6 @@ const SFGAO_CANLINK: u32 = 0x0000_0004;
 const SFGAO_BROWSABLE: u32 = 0x0800_0000;
 const SFGAO_FILESYSANCESTOR: u32 = 0x1000_0000;
 const SFGAO_FOLDER: u32 = 0x2000_0000;
-const SFGAO_FILESYSTEM: u32 = 0x4000_0000;
 const SFGAO_HASSUBFOLDER: u32 = 0x8000_0000;
 
 /// The system file-system folder (`CLSID_ShellFSFolder`); with `IPersistFolder3::InitializeEx`
@@ -131,6 +130,24 @@ impl VirtualRootFolder {
         res
     }
 
+    /// Desktop-absolute parsing name of this root (e.g. `::{9F3B4A10-…}`).
+    fn root_parsing_name(&self) -> String {
+        if let Some(root) = self.root_abs_pidl() {
+            let name = unsafe {
+                SHGetNameFromIDList(root as *const ITEMIDLIST, SIGDN_DESKTOPABSOLUTEPARSING)
+            };
+            unsafe { ILFree(Some(root as *const ITEMIDLIST)) };
+            if let Ok(p) = name {
+                let s = unsafe { p.to_string() }.unwrap_or_default();
+                unsafe { CoTaskMemFree(Some(p.0 as *const c_void)) };
+                if !s.is_empty() {
+                    return s;
+                }
+            }
+        }
+        format!("::{}", cfd_core::config::format_guid(&self.clsid))
+    }
+
     /// Clone of this folder's absolute (virtual) PIDL, if Explorer initialised us.
     fn root_abs_pidl(&self) -> Option<*mut ITEMIDLIST> {
         let guard = self.pidl_root.lock().unwrap_or_else(|p| p.into_inner());
@@ -198,6 +215,12 @@ impl VirtualRootFolder {
             if !abs.is_null() {
                 let r = Self::bind_delegate_folder(&entry.target_path, abs);
                 ILFree(Some(abs as *const ITEMIDLIST));
+                crate::trace(|| {
+                    format!(
+                        "bind_target_folder {id}: delegate {:?}",
+                        r.as_ref().map(|_| "ok").map_err(|e| e.code())
+                    )
+                });
                 if r.is_ok() {
                     return r;
                 }
@@ -265,20 +288,75 @@ impl IShellFolder_Impl for VirtualRootFolder_Impl {
             return Err(E_POINTER.into());
         }
         unsafe { *ppidl = std::ptr::null_mut() };
-        let name = unsafe { pszdisplayname.to_string() }.unwrap_or_default();
+        let full = unsafe { pszdisplayname.to_string() }.unwrap_or_default();
+        let (head, rest) = match full.split_once('\\') {
+            Some((h, r)) => (h.to_string(), r.trim_start_matches('\\').to_string()),
+            None => (full.clone(), String::new()),
+        };
         let cfg = AppConfig::load();
         if let Some(entry) = cfg
             .subfolders
             .iter()
-            .find(|e| e.enabled && e.root_id == self.root_id && (e.name == name || e.id == name))
+            .find(|e| e.enabled && e.root_id == self.root_id && (e.id == head || e.name == head))
         {
+            let item = unsafe { crate::pidl::create_item_pidl(&entry.id) };
+            if rest.is_empty() {
+                unsafe {
+                    *ppidl = item;
+                    if !pdwattributes.is_null() {
+                        *pdwattributes &= SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_BROWSABLE;
+                    }
+                }
+                crate::trace(|| format!("ParseDisplayName {full:?} -> item {}", entry.id));
+                return Ok(());
+            }
+            // "id\\sub\\dir": parse the remainder inside the mapped folder and append it.
+            let target_sf = match unsafe { self.bind_target_folder(&entry.id) } {
+                Ok(sf) => sf,
+                Err(e) => {
+                    unsafe { CoTaskMemFree(Some(item as *const c_void)) };
+                    return Err(e);
+                }
+            };
+            let rest_w = to_wide(&rest);
+            let mut child: *mut ITEMIDLIST = std::ptr::null_mut();
+            let pbc_raw = pbc.map(|b| b.as_raw()).unwrap_or_default();
+            let hr = unsafe {
+                (Interface::vtable(&target_sf).ParseDisplayName)(
+                    Interface::as_raw(&target_sf),
+                    hwnd,
+                    pbc_raw,
+                    PCWSTR(rest_w.as_ptr()),
+                    std::ptr::null_mut(),
+                    &mut child,
+                    pdwattributes,
+                )
+            };
+            let result = if hr.is_ok() && !child.is_null() {
+                let combined = unsafe {
+                    ILCombine(
+                        Some(item as *const ITEMIDLIST),
+                        Some(child as *const ITEMIDLIST),
+                    )
+                };
+                unsafe { *ppidl = combined };
+                Ok(())
+            } else {
+                Err(Error::from(if hr.is_err() { hr } else { E_FAIL }))
+            };
             unsafe {
-                *ppidl = crate::pidl::create_item_pidl(&entry.id);
-                if !pdwattributes.is_null() {
-                    *pdwattributes &= SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_BROWSABLE;
+                CoTaskMemFree(Some(item as *const c_void));
+                if !child.is_null() {
+                    CoTaskMemFree(Some(child as *const c_void));
                 }
             }
-            return Ok(());
+            crate::trace(|| {
+                format!(
+                    "ParseDisplayName {full:?} -> {:?}",
+                    result.as_ref().map(|_| "ok")
+                )
+            });
+            return result;
         }
         if let Ok(root_sf) = unsafe { self.bind_root_target_folder() } {
             let pbc_raw = pbc.map(|b| b.as_raw()).unwrap_or_default();
@@ -528,7 +606,8 @@ impl IShellFolder_Impl for VirtualRootFolder_Impl {
                         | SFGAO_CANLINK;
                     if let Some(entry) = self.find_entry(&id) {
                         if is_unc_or_dir(&entry.target_path) {
-                            item_attrs |= SFGAO_HASSUBFOLDER | SFGAO_FILESYSTEM;
+                            // Not SFGAO_FILESYSTEM: the item's parsing name is virtual, not a path.
+                            item_attrs |= SFGAO_HASSUBFOLDER;
                         }
                     }
                     common &= item_attrs;
@@ -631,11 +710,20 @@ impl IShellFolder_Impl for VirtualRootFolder_Impl {
             let entry = self.find_entry(&id).ok_or_else(|| Error::from(E_FAIL))?;
             let for_parsing = (uflags.0 & SHGDN_FORPARSING.0) != 0;
             let in_folder = (uflags.0 & SHGDN_INFOLDER.0) != 0;
-            let text = if for_parsing && !in_folder && !entry.target_path.trim().is_empty() {
-                entry.target_path.trim().to_string()
-            } else {
-                entry.name
+            // Parsing names must round-trip through ParseDisplayName to this same virtual PIDL:
+            // Explorer re-parses them to update the address bar. Returning the real target path
+            // here made it resolve to a different location and leave the address bar unchanged.
+            let text = match (for_parsing, in_folder) {
+                (true, true) => entry.id.clone(),
+                (true, false) => format!("{}\\{}", self.root_parsing_name(), entry.id),
+                _ => entry.name.clone(),
             };
+            crate::trace(|| {
+                format!(
+                    "GetDisplayNameOf item {} flags=0x{:X} -> {text:?}",
+                    entry.id, uflags.0
+                )
+            });
 
             unsafe {
                 (*pname).uType = STRRET_WSTR.0 as u32;
