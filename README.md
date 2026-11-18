@@ -48,6 +48,10 @@ Requires Rust (stable, MSVC toolchain) and the Windows 10/11 SDK (`rc.exe`, for 
 .\run-checks.ps1   # fmt, clippy, tests, build
 ```
 
+### Known issues
+
+- When you open a real folder directly under a sidebar root, the address bar shows the correct path but keeps the previous location's icon. Folders one level deeper show the right icon.
+
 ### Documentation
 - 🏛️ [Architecture](./doc/architecture.md) — shell namespace extension, registry layout, configuration file.
 - ⬆️ [Installation, version check and auto-update](./doc/updates.md) — installer switches, update flow, release signing.
@@ -100,6 +104,10 @@ Windows 11（Windows 10 1803 以上也可使用，背景材質改為 Acrylic）�
 .\deploy.ps1       # 建置、為目前使用者安裝並開啟控制中心
 .\run-checks.ps1   # fmt、clippy、測試、建置
 ```
+
+### 已知問題
+
+- 開啟側邊欄根節點底下第一層的真實資料夾時，位置列的路徑正確，但 icon 會維持上一個位置的圖示；再往下一層的資料夾則正常。
 
 ### 技術文件
 - 🏛️ [架構說明](./doc/architecture.zh-TW.md)：Shell Namespace Extension、登錄檔配置、設定檔格式。

@@ -117,3 +117,14 @@ DwmExtendFrame、`DrawThemeTextEx`、反鋸齒元件與雙主題，但和 cbxshe
 - [ ] 產生 minisign 金鑰、把公鑰放進 `assets/updater.pub`、設定 GitHub `release` Environment 與 Secrets（見 `doc/updates.zh-TW.md` 第 4 節）。
 - [ ] 截圖：`doc/images/control-center.zh-TW.png`、`control-center.en.png`、`explorer-sidebar.png`。
 - [ ] 建立 GitHub 儲存庫並推送，發行 v0.3.0；再以 v0.3.1 實測線上更新（含竄改安裝檔、降版清單應被拒絕）。
+
+## 5. 已知問題（擱置）
+
+### 第一層資料夾的位置列 icon 維持上一個位置
+
+- 現象：在根節點底下第一層的真實資料夾（例如「開發」底下的 CBXShell-fix），位置列路徑正確，但 icon 維持上一個位置（例如 Dropbox，或從「開發」雙擊進入時維持「開發」的 icon）。從側邊欄點或從檔案清單雙擊都一樣；第二層以下與根節點本身都正常。
+- 已確認（`shell-trace` 紀錄）：根節點對這些項目回應的 `IShellIcon::GetIconOf`、`IExtractIconW`（解析為 `imageres.dll,-3`）、`GetDetailsEx`、`GetDisplayNameOf` 都正確；但導覽時位置列沒有向根節點要 icon。
+- 已試過但無效：`IShellIcon`（4eaeef5，保留）、預先解析的 `IExtractIconW`（c03f315，保留）、根節點相對的 `ParseDisplayName`（62971fd，已撤回，從未被呼叫）。
+- 不要再試：`GetDisplayNameOf(空 PIDL)` 改回報根節點的虛擬解析名稱（79f1aa6）。`SHGetNameFromIDList` 會回頭再問根節點同一件事，無限遞迴使 explorer.exe 崩潰，已撤回（7d8ba77）。
+- 診斷方式：建立 `%LOCALAPPDATA%\CustomerFD\shell-trace.enabled` 後重啟檔案總管，紀錄寫在同目錄的 `shell-trace.log`（備援：`%TEMP%\cfd-shell-trace.log`、`%USERPROFILE%\AppData\LocalLow\CustomerFD\shell-trace.log`）。用完請刪除 `.enabled` 檔。
+- 後續方向：只加紀錄、不改行為，找出位置列實際取得 icon 的介面（可能是根節點未實作、因此看不到呼叫的介面）。
