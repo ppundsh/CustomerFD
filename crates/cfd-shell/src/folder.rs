@@ -120,6 +120,16 @@ impl VirtualRootFolder {
             .unwrap_or(false)
     }
 
+    fn root_display_name(&self) -> String {
+        AppConfig::load()
+            .root_folders
+            .into_iter()
+            .find(|r| r.id == self.root_id)
+            .map(|r| r.name)
+            .filter(|n| !n.trim().is_empty())
+            .unwrap_or_else(|| self.root_id.clone())
+    }
+
     fn find_root_target_path(&self) -> Option<String> {
         let cfg = AppConfig::load();
         cfg.root_folders
@@ -787,6 +797,32 @@ impl IShellFolder_Impl for VirtualRootFolder_Impl {
         if pname.is_null() {
             return Err(E_POINTER.into());
         }
+        if pidl.is_null() || unsafe { il_is_empty(pidl) } {
+            // The root itself. Forwarded, the file-system folder answered with the real target
+            // path, which disagrees with the root's own (virtual) parsing name: Explorer then
+            // could not place folders directly under the root and kept the previous location's
+            // icon in the address bar.
+            let for_parsing = (uflags.0 & SHGDN_FORPARSING.0) != 0;
+            let in_folder = (uflags.0 & SHGDN_INFOLDER.0) != 0;
+            let text = if for_parsing && !in_folder {
+                self.root_parsing_name()
+            } else {
+                self.root_display_name()
+            };
+            crate::trace(|| {
+                format!(
+                    "GetDisplayNameOf (root itself) flags=0x{:X} -> {text:?}",
+                    uflags.0
+                )
+            });
+            unsafe {
+                (*pname).uType = STRRET_WSTR.0 as u32;
+                (*pname).Anonymous = STRRET_0 {
+                    pOleStr: alloc_pwstr(&text),
+                };
+            }
+            return Ok(());
+        }
         if let Some(id) = unsafe { parse_item_id(pidl) } {
             let rest = unsafe { il_next(pidl) };
             if !unsafe { il_is_empty(rest) } {
@@ -888,7 +924,9 @@ impl VirtualRootFolder_Impl {
     /// "root/child" description of a PIDL for the diagnostic trace (only evaluated when tracing).
     fn describe(&self, pidl: *const ITEMIDLIST) -> String {
         let name = unsafe {
-            if let Some(id) = parse_item_id(pidl) {
+            if pidl.is_null() || il_is_empty(pidl) {
+                "(self)".to_string()
+            } else if let Some(id) = parse_item_id(pidl) {
                 let rest = il_next(pidl);
                 if il_is_empty(rest) {
                     format!("[{id}]")
