@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -12,46 +11,62 @@ permissions:
 jobs:
   build-and-release:
     runs-on: windows-latest
-    # Put the signing-key secrets in a "release" environment with required reviewers so every
-    # release waits for your approval before the key is handed to the job.
+    # The minisign secrets live only in the "release" environment (required reviewer: the
+    # maintainer, tags v* only), so every run waits for an Approve on the GitHub web page.
     environment: release
     permissions:
       contents: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
 
-      - name: Verify tag matches Cargo version
+      - name: Verify tag is signed by a release approver (YubiKey OpenPGP)
         shell: pwsh
         run: |
-          $v = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"(.+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
-          if ("v$v" -ne "${{ github.ref_name }}") { throw "Tag ${{ github.ref_name }} != Cargo version v$v" }
+          $tag = "${{ github.ref_name }}"
+          $gpg = 'C:\Program Files\Git\usr\bin\gpg.exe'
+          git fetch --force origin "refs/tags/${tag}:refs/tags/$tag"
+          Invoke-WebRequest "https://github.com/${{ github.repository_owner }}.gpg" -OutFile "$env:RUNNER_TEMP/owner.gpg"
+          & $gpg --batch --import "$env:RUNNER_TEMP/owner.gpg"
+          $raw = git -c gpg.program="$gpg" verify-tag --raw $tag 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 0) { throw "tag signature invalid`n$raw" }
+          $fpr = ([regex]'VALIDSIG ([0-9A-F]{40})').Match($raw).Groups[1].Value
+          if (-not $fpr) { throw "no valid signature on $tag`n$raw" }
+          $ssh = (& $gpg --export-ssh-key "$fpr!") -split '\s+'
+          if (-not (Select-String -LiteralPath assets/release-approvers.pub -SimpleMatch "openpgp $($ssh[0]) $($ssh[1])" -Quiet)) {
+            throw "tag signed by $fpr, which is not a release approver"
+          }
 
+      - name: Verify tag matches project version
+        shell: pwsh
+        run: |
+          $cfg = Import-PowerShellDataFile release.config.psd1
+          if ((Get-Content -Raw $cfg.VersionFile) -notmatch $cfg.VersionRegex) { throw 'version not found' }
+          if ("v$($Matches[1])" -ne "${{ github.ref_name }}") { throw "Tag ${{ github.ref_name }} != version v$($Matches[1])" }
+
+      # ── Project-specific: toolchain, tests, build (must produce dist\CustomerFD-Setup.exe) ──
       - name: Verify the update signing public key is committed
         shell: pwsh
         run: |
           $key = Get-Content assets/updater.pub | Where-Object { $_ -and -not $_.StartsWith('#') -and -not $_.StartsWith('untrusted comment:') }
           if (-not $key) { throw 'assets/updater.pub has no public key: this build could never update itself. See doc/updates.md.' }
-
-      - name: Install Rust stable toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@v2
-
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Run workspace unit tests
         run: cargo test --workspace -- --test-threads=1
-
       - name: Build & package installer
         shell: pwsh
         run: .\build.ps1
+      # ─────────────────────────────────────────────────────────────────────────────────────
 
-      - name: Create buildable source archive
+      - name: Create source archive
         shell: pwsh
-        run: git archive --format=zip --output="dist/CustomerFD-Source.zip" HEAD
+        run: git archive --format=zip --output="dist/source.zip" HEAD
 
+      # CustomerFD keeps its historical secret names (like CBX Shell's CBX_UPDATER_KEY);
+      # new projects of the release standard use MINISIGN_KEY / MINISIGN_KEY_PASSWORD.
       - name: Sign installer & write latest.json
         shell: pwsh
         env:
@@ -59,12 +74,17 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.CFD_UPDATER_KEY_PASSWORD }}
         run: .\release-manifest.ps1 -Tag "${{ github.ref_name }}"
 
-      - name: Publish GitHub Release
+      # A draft never shows up under releases/latest. scripts\approve-release.ps1 adds the
+      # YubiKey approval to latest.json and publishes it as Latest.
+      # The files are listed by name: dist\ also holds cfd-manager.exe and cfd_shell.dll.
+      - name: Create draft release
         uses: softprops/action-gh-release@v2
         with:
+          draft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             dist/CustomerFD-Setup.exe
             dist/CustomerFD-Setup.exe.sig
             dist/latest.json
-            dist/CustomerFD-Source.zip
+            dist/source.zip
           generate_release_notes: true

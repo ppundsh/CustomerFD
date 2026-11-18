@@ -132,6 +132,8 @@ The updater picks the check by the format of `approval` (`BEGIN PGP SIGNATURE` o
 
 ## 6. Releasing
 
+Releases follow the maintainer's shared release standard: the project-specific values (repo, installer name, approval namespace, version file) live only in `release.config.psd1` at the repo root, which `release-manifest.ps1`, `scripts\approve-release.ps1` and `release.yml` read.
+
 1. With the YubiKey plugged in, a clean work tree and `.\run-checks.ps1` passing, run `.\bump-version.ps1 patch -Push`: bump the version → signed commit → signed tag `vX.Y.Z` (checked with `git verify-tag`) → push branch and tag (each needs the YubiKey PIN / touch).
 2. GitHub Actions waits for **Review deployments › Approve** on the web page, then: tag signed by an approver → tag matches the version → `assets/updater.pub` has a key → tests → `build.ps1` → `release-manifest.ps1` (minisign signature + `latest.json`) → **draft** release. A draft never appears under `releases/latest`, so users do not get it.
 3. Run `scripts\approve-release.ps1 -Tag vX.Y.Z` locally (needs the GitHub CLI: `winget install GitHub.cli`, `gh auth login`): it checks the tag signature, downloads the draft, checks version and URL, shows the installer SHA-256 for you to confirm, signs the approval with the YubiKey and verifies it locally, writes it into `latest.json`, uploads it and publishes the release.

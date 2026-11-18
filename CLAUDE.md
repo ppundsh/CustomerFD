@@ -69,7 +69,7 @@ CustomerFD 是 Windows 11 檔案總管**左側邊欄自訂資料夾**擴充套�
   - `updater.pub` 無金鑰的建置要停用更新功能。
   - `assets/release-approvers.pub` 列有維護者 YubiKey 公鑰（目前是 GnuPG／OpenPGP 金鑰 `0x411F3603EC032043`）。有金鑰時，更新**必須**另有 `latest.json` 的 `approval`（對 `customerfd-release\nversion=…\nsha256=…\n` 的 YubiKey 簽章）才會安裝；不要移除金鑰或讓核准變成選用。
 - 發行流程：commit 與 `v*` 標籤都要用 YubiKey 簽章（`.githooks/pre-push` 會擋未簽章的推送；CI 會驗證標籤簽章）。CI 只建立**草稿** Release，由維護者在本機執行 `scripts\approve-release.ps1 -Tag vX.Y.Z` 核准後發布。代理程式無法簽章：替使用者做的 commit 推送前要由使用者重新簽章（`git rebase --exec "git commit --amend --no-edit -S" origin/main`）。
-- **私鑰（minisign `.key`、YubiKey 相關）絕不提交**；公鑰隨版本發佈後不可直接更換。維護者私人的發行手冊放在 `private/`（已列入 `.gitignore`）。
+- **私鑰（minisign `.key`、YubiKey 相關）絕不提交**；公鑰隨版本發佈後不可直接更換。維護者私人的發行手冊與跨專案共用的發行標準（`private/release-standard.zh-TW.md`）放在 `private/`（已列入 `.gitignore`）。專案專屬的發行設定只放 `release.config.psd1`；`scripts/`、`release-manifest.ps1`、`.githooks/pre-push`、`.gitattributes` 是標準檔案，與 cbxshell-rs 保持一致（只差產品名稱），改動時兩邊同步。
 
 ## 文件與授權
 - 授權 GPL-3.0-or-later（移植自 cbxshell-rs 的程式碼也是 GPL）；版權標示 `Copyright (C) 2026 ppundsh`。

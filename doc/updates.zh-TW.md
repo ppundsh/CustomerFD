@@ -132,6 +132,8 @@ https://github.com/ppundsh/CustomerFD/releases/latest/download/latest.json
 
 ## 6. 發行步驟
 
+發行流程依維護者的共用發行標準：專案專屬的值（repo、安裝檔名、核准命名空間、版本檔）只放在根目錄的 `release.config.psd1`，`release-manifest.ps1`、`scripts\approve-release.ps1` 與 `release.yml` 都從那裡讀取。
+
 1. 插上 YubiKey，工作區乾淨、`.\run-checks.ps1` 通過後執行 `.\bump-version.ps1 patch -Push`：更新版本 → 簽章提交 → 簽章標籤 `vX.Y.Z`（並 `git verify-tag`）→ 推送分支與標籤（各需 YubiKey PIN／觸碰）。
 2. GitHub Actions 等你在網頁上 **Review deployments › Approve** 後，依序：驗證標籤是核准者簽的 → 標籤與版本一致 → `assets/updater.pub` 有公鑰 → 測試 → `build.ps1` → `release-manifest.ps1`（minisign 簽署＋`latest.json`）→ 建立**草稿** Release。草稿不會出現在 `releases/latest`，使用者收不到。
 3. 本機執行 `scripts\approve-release.ps1 -Tag vX.Y.Z`（需要 GitHub CLI：`winget install GitHub.cli`、`gh auth login`）：確認標籤簽章、下載草稿、核對版本與網址、顯示安裝檔 SHA-256 供確認，用 YubiKey 簽核准並在本機驗證、寫入 `latest.json`、上傳並發布。
