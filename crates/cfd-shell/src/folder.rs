@@ -27,7 +27,7 @@ use windows::Win32::UI::Shell::{
     SHGetNameFromIDList, PERSIST_FOLDER_TARGET_INFO, SFV_CREATE, SHCONTF_FOLDERS, SHGDN_FORPARSING,
     SHGDN_INFOLDER, SIGDN_DESKTOPABSOLUTEPARSING,
 };
-use windows::Win32::UI::Shell::{IShellIcon, IShellIcon_Impl, SHBindToParent};
+use windows::Win32::UI::Shell::{IShellIcon, IShellIcon_Impl, SHBindToParent, StrRetToStrW};
 
 const SFGAO_CANCOPY: u32 = 0x0000_0001;
 const SFGAO_CANLINK: u32 = 0x0000_0004;
@@ -485,6 +485,14 @@ impl IShellFolder_Impl for VirtualRootFolder_Impl {
                     ppv,
                 )
             };
+            crate::trace(|| {
+                format!(
+                    "BindToObject {} riid={:?} -> 0x{:08X}",
+                    self.describe(pidl),
+                    unsafe { *riid },
+                    hr.0
+                )
+            });
             hr.ok()
         } else {
             Err(E_INVALIDARG.into())
@@ -653,6 +661,12 @@ impl IShellFolder_Impl for VirtualRootFolder_Impl {
                 unsafe {
                     let _ = root_sf.GetAttributesOf(&[pidl], &mut sub_attrs);
                 }
+                crate::trace(|| {
+                    format!(
+                        "GetAttributesOf {} in=0x{common:X} -> 0x{sub_attrs:X}",
+                        self.describe(pidl)
+                    )
+                });
                 common &= sub_attrs;
             }
         }
@@ -706,7 +720,8 @@ impl IShellFolder_Impl for VirtualRootFolder_Impl {
             };
             crate::trace(|| {
                 format!(
-                    "GetUIObjectOf (real item) riid={:?} -> 0x{:08X}",
+                    "GetUIObjectOf {} riid={:?} -> 0x{:08X}",
+                    self.describe(pidl),
                     unsafe { *riid },
                     hr.0
                 )
@@ -773,7 +788,16 @@ impl IShellFolder_Impl for VirtualRootFolder_Impl {
             }
             Ok(())
         } else if let Ok(root_sf) = unsafe { self.bind_root_target_folder() } {
-            unsafe { root_sf.GetDisplayNameOf(pidl, uflags, pname) }
+            let r = unsafe { root_sf.GetDisplayNameOf(pidl, uflags, pname) };
+            crate::trace(|| {
+                format!(
+                    "GetDisplayNameOf {} flags=0x{:X} -> {:?}",
+                    self.describe(pidl),
+                    uflags.0,
+                    r.as_ref().map_err(|e| e.code())
+                )
+            });
+            r
         } else {
             Err(E_INVALIDARG.into())
         }
@@ -799,6 +823,42 @@ const FMTID_ITEM_TYPE: GUID = GUID::from_u128(0x28636AA6_953D_11D2_B5D6_00C04FD9
 const PID_ITEM_TYPE: u32 = 11;
 
 impl VirtualRootFolder_Impl {
+    /// "root/child" description of a PIDL for the diagnostic trace (only evaluated when tracing).
+    fn describe(&self, pidl: *const ITEMIDLIST) -> String {
+        let name = unsafe {
+            if let Some(id) = parse_item_id(pidl) {
+                let rest = il_next(pidl);
+                if il_is_empty(rest) {
+                    format!("[{id}]")
+                } else {
+                    format!(
+                        "[{id}]\\{}",
+                        self.child_name(&self.bind_target_folder(&id), rest)
+                    )
+                }
+            } else {
+                self.child_name(&self.bind_root_target_folder(), pidl)
+            }
+        };
+        format!("{}/{}", self.root_id, name)
+    }
+
+    unsafe fn child_name(&self, sf: &Result<IShellFolder>, pidl: *const ITEMIDLIST) -> String {
+        let Ok(sf) = sf else { return "?".into() };
+        let mut sr = STRRET::default();
+        let flags = windows::Win32::UI::Shell::SHGDNF(SHGDN_INFOLDER.0 | SHGDN_FORPARSING.0);
+        if sf.GetDisplayNameOf(pidl, flags, &mut sr).is_err() {
+            return "?".into();
+        }
+        let mut p = windows::core::PWSTR::null();
+        if StrRetToStrW(&mut sr, Some(pidl), &mut p).is_err() || p.is_null() {
+            return "?".into();
+        }
+        let s = p.to_string().unwrap_or_default();
+        CoTaskMemFree(Some(p.0 as *const c_void));
+        s
+    }
+
     /// The real folder that owns `pidl` (relative to this root) and the PIDL relative to it, for
     /// items that are not our own mapped-folder entries.
     unsafe fn owner_of(
@@ -846,7 +906,8 @@ impl IShellIcon_Impl for VirtualRootFolder_Impl {
             };
             crate::trace(|| {
                 format!(
-                    "GetIconOf (real item) -> {:?}",
+                    "GetIconOf {} flags=0x{flags:X} -> {:?}",
+                    self.describe(pidl),
                     r.as_ref().map_err(|e| e.code())
                 )
             });
