@@ -8,6 +8,7 @@ use std::sync::Mutex;
 use windows::core::{
     implement, ComObject, Error, IUnknownImpl, Interface, Result, GUID, HRESULT, PCWSTR,
 };
+use windows::Win32::Foundation::S_FALSE;
 use windows::Win32::Foundation::{
     E_FAIL, E_INVALIDARG, E_NOINTERFACE, E_NOTIMPL, E_POINTER, HWND, S_OK,
 };
@@ -18,7 +19,6 @@ use windows::Win32::UI::Shell::Common::{
     ITEMIDLIST, SHCOLSTATE, SHELLDETAILS, STRRET, STRRET_0, STRRET_WSTR,
 };
 use windows::Win32::UI::Shell::PropertiesSystem::PROPERTYKEY;
-use windows::Win32::UI::Shell::SHBindToParent;
 use windows::Win32::UI::Shell::{
     IDefaultExtractIconInit, IEnumExtraSearch, IEnumIDList, IExtractIconA, IExtractIconW,
     ILCombine, ILFree, IPersistFolder, IPersistFolder2, IPersistFolder2_Impl, IPersistFolder3,
@@ -27,6 +27,7 @@ use windows::Win32::UI::Shell::{
     SHGetNameFromIDList, PERSIST_FOLDER_TARGET_INFO, SFV_CREATE, SHCONTF_FOLDERS, SHGDN_FORPARSING,
     SHGDN_INFOLDER, SIGDN_DESKTOPABSOLUTEPARSING,
 };
+use windows::Win32::UI::Shell::{IShellIcon, IShellIcon_Impl, SHBindToParent};
 
 const SFGAO_CANCOPY: u32 = 0x0000_0001;
 const SFGAO_CANLINK: u32 = 0x0000_0004;
@@ -51,7 +52,14 @@ fn is_unc_or_dir(target: &str) -> bool {
     Path::new(t).is_dir()
 }
 
-#[implement(IShellFolder2, IShellFolder, IPersistFolder2, IPersistFolder, IPersist)]
+#[implement(
+    IShellFolder2,
+    IShellFolder,
+    IShellIcon,
+    IPersistFolder2,
+    IPersistFolder,
+    IPersist
+)]
 pub struct VirtualRootFolder {
     root_id: String,
     clsid: GUID,
@@ -696,6 +704,13 @@ impl IShellFolder_Impl for VirtualRootFolder_Impl {
                     ppv,
                 )
             };
+            crate::trace(|| {
+                format!(
+                    "GetUIObjectOf (real item) riid={:?} -> 0x{:08X}",
+                    unsafe { *riid },
+                    hr.0
+                )
+            });
             return hr.ok();
         }
 
@@ -801,6 +816,57 @@ impl VirtualRootFolder_Impl {
             let sf = self.bind_root_target_folder().ok()?;
             Some((sf.cast().ok()?, pidl))
         }
+    }
+}
+
+/// Forwards `IShellIcon::GetIconOf` and keeps its exact HRESULT (S_FALSE means "use
+/// IExtractIcon instead", which `windows-rs` would otherwise report as success).
+unsafe fn forward_icon_of(si: &IShellIcon, pidl: *const ITEMIDLIST, flags: u32) -> Result<i32> {
+    let mut index = 0i32;
+    let hr = (Interface::vtable(si).GetIconOf)(Interface::as_raw(si), pidl, flags, &mut index);
+    if hr == S_OK {
+        Ok(index)
+    } else {
+        Err(Error::from(hr))
+    }
+}
+
+// The address bar takes the current location's icon from its parent folder's IShellIcon (the
+// system file-system folder has it, which is why deeper folders showed the right icon). Without
+// it here, folders directly under a root kept the previous location's icon.
+impl IShellIcon_Impl for VirtualRootFolder_Impl {
+    fn GetIconOf(&self, pidl: *const ITEMIDLIST, flags: u32) -> Result<i32> {
+        if pidl.is_null() {
+            return Err(E_INVALIDARG.into());
+        }
+        if let Some((sf, rel)) = unsafe { self.owner_of(pidl) } {
+            let r = match sf.cast::<IShellIcon>() {
+                Ok(si) => unsafe { forward_icon_of(&si, rel, flags) },
+                Err(_) => Err(Error::from(S_FALSE)),
+            };
+            crate::trace(|| {
+                format!(
+                    "GetIconOf (real item) -> {:?}",
+                    r.as_ref().map_err(|e| e.code())
+                )
+            });
+            return r;
+        }
+        let entry = unsafe { parse_item_id(pidl) }.and_then(|id| self.find_entry(&id));
+        let r = match entry {
+            // a custom icon is served by IExtractIcon (GetUIObjectOf)
+            Some(e) if e.icon_path.trim().is_empty() => unsafe {
+                real_folder_icon_of(&e.target_path, flags)
+            },
+            _ => Err(Error::from(S_FALSE)),
+        };
+        crate::trace(|| {
+            format!(
+                "GetIconOf (mapped item) -> {:?}",
+                r.as_ref().map_err(|e| e.code())
+            )
+        });
+        r
     }
 }
 
@@ -1012,6 +1078,36 @@ unsafe fn real_folder_ui_object(
         }
         Ok(_) => Err(E_FAIL.into()),
         Err(e) => Err(e),
+    };
+    CoTaskMemFree(Some(pidl as *const c_void));
+    result
+}
+
+/// System image-list index of the real folder at `target`, from its parent's IShellIcon.
+unsafe fn real_folder_icon_of(target: &str, flags: u32) -> Result<i32> {
+    let t = target.trim();
+    if t.is_empty() {
+        return Err(Error::from(S_FALSE));
+    }
+    let desktop = SHGetDesktopFolder()?;
+    let w = to_wide(t);
+    let mut pidl: *mut ITEMIDLIST = std::ptr::null_mut();
+    let mut attrs = 0u32;
+    desktop.ParseDisplayName(
+        HWND::default(),
+        None,
+        PCWSTR(w.as_ptr()),
+        None,
+        &mut pidl,
+        &mut attrs,
+    )?;
+    if pidl.is_null() {
+        return Err(E_FAIL.into());
+    }
+    let mut last: *mut ITEMIDLIST = std::ptr::null_mut();
+    let result = match SHBindToParent::<IShellIcon>(pidl, Some(&mut last)) {
+        Ok(si) if !last.is_null() => forward_icon_of(&si, last, flags),
+        _ => Err(Error::from(S_FALSE)),
     };
     CoTaskMemFree(Some(pidl as *const c_void));
     result
