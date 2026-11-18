@@ -707,6 +707,20 @@ impl IShellFolder_Impl for VirtualRootFolder_Impl {
                 return hr.ok();
             }
         } else if let Ok(root_sf) = unsafe { self.bind_root_target_folder() } {
+            if cidl == 1 && unsafe { *riid } == IExtractIconW::IID {
+                let r = unsafe { resolved_extract_icon(&root_sf, pidl, hwndowner, riid, ppv) };
+                crate::trace(|| {
+                    format!(
+                        "GetUIObjectOf {} IExtractIconW -> {}",
+                        self.describe(pidl),
+                        match &r {
+                            Ok(how) => how.clone(),
+                            Err(e) => format!("{:?}", e.code()),
+                        }
+                    )
+                });
+                return r.map(|_| ());
+            }
             let hr = unsafe {
                 (Interface::vtable(&root_sf).GetUIObjectOf)(
                     Interface::as_raw(&root_sf),
@@ -1172,4 +1186,63 @@ unsafe fn real_folder_icon_of(target: &str, flags: u32) -> Result<i32> {
     };
     CoTaskMemFree(Some(pidl as *const c_void));
     result
+}
+
+/// Icon extractor for a real folder directly under a root. The file-system folder's own
+/// extractor answers asynchronously / through the system image list, which the address bar
+/// does not pick up when the parent is this root (it kept the previous location's icon), so
+/// its icon location is resolved here up front and served by a plain default extractor.
+/// Returns a description of what was served, for the trace.
+unsafe fn resolved_extract_icon(
+    parent: &IShellFolder,
+    pidl: *const ITEMIDLIST,
+    hwnd: HWND,
+    riid: *const GUID,
+    ppv: *mut *mut c_void,
+) -> Result<String> {
+    use windows::Win32::UI::Shell::{GIL_FORSHELL, GIL_NOTFILENAME, GIL_OPENICON};
+    let mut raw: *mut c_void = std::ptr::null_mut();
+    (Interface::vtable(parent).GetUIObjectOf)(
+        Interface::as_raw(parent),
+        hwnd,
+        1,
+        &pidl,
+        &IExtractIconW::IID,
+        std::ptr::null(),
+        &mut raw,
+    )
+    .ok()?;
+    let real = IExtractIconW::from_raw(raw);
+
+    let location = |flags: u32| -> Option<(String, i32, u32)> {
+        let mut buf = [0u16; 260];
+        let mut index = 0i32;
+        let mut out_flags = 0u32;
+        real.GetIconLocation(flags, &mut buf, &mut index, &mut out_flags)
+            .ok()?;
+        let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+        Some((String::from_utf16_lossy(&buf[..len]), index, out_flags))
+    };
+
+    let normal = location(GIL_FORSHELL);
+    let desc = format!("{normal:?}");
+    let usable = |l: &Option<(String, i32, u32)>| {
+        l.as_ref()
+            .filter(|(f, _, fl)| !f.is_empty() && fl & GIL_NOTFILENAME == 0)
+            .cloned()
+    };
+    let Some((file, index, _)) = usable(&normal) else {
+        // Not a file location (system image list): hand out the real extractor unchanged.
+        real.query(riid, ppv).ok()?;
+        return Ok(format!("real extractor {desc}"));
+    };
+    let init: IDefaultExtractIconInit = SHCreateDefaultExtractIcon()?;
+    let w = to_wide(&file);
+    init.SetNormalIcon(PCWSTR(w.as_ptr()), index)?;
+    if let Some((ofile, oindex, _)) = usable(&location(GIL_FORSHELL | GIL_OPENICON)) {
+        let ow = to_wide(&ofile);
+        init.SetOpenIcon(PCWSTR(ow.as_ptr()), oindex)?;
+    }
+    init.query(riid, ppv).ok()?;
+    Ok(format!("resolved {desc}"))
 }
