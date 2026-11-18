@@ -11,13 +11,16 @@ use windows::core::{
 use windows::Win32::Foundation::{
     E_FAIL, E_INVALIDARG, E_NOINTERFACE, E_NOTIMPL, E_POINTER, HWND, S_OK,
 };
-use windows::Win32::System::Com::{CoTaskMemFree, IBindCtx, IPersist, IPersist_Impl};
+use windows::Win32::System::Com::{
+    CoCreateInstance, CoTaskMemFree, IBindCtx, IPersist, IPersist_Impl, CLSCTX_INPROC_SERVER,
+};
 use windows::Win32::UI::Shell::Common::{ITEMIDLIST, STRRET, STRRET_0, STRRET_WSTR};
 use windows::Win32::UI::Shell::{
-    IDefaultExtractIconInit, IEnumIDList, IExtractIconW, IPersistFolder, IPersistFolder2,
-    IPersistFolder2_Impl, IPersistFolder_Impl, IShellFolder, IShellFolder_Impl, IShellView,
-    SHCreateDefaultExtractIcon, SHCreateShellFolderView, SHGetDesktopFolder, SFV_CREATE,
-    SHCONTF_FOLDERS, SHGDN_FORPARSING, SHGDN_INFOLDER,
+    IDefaultExtractIconInit, IEnumIDList, IExtractIconW, ILCombine, ILFree, IPersistFolder,
+    IPersistFolder2, IPersistFolder2_Impl, IPersistFolder3, IPersistFolder_Impl, IShellFolder,
+    IShellFolder_Impl, IShellView, SHCreateDefaultExtractIcon, SHCreateShellFolderView,
+    SHGetDesktopFolder, PERSIST_FOLDER_TARGET_INFO, SFV_CREATE, SHCONTF_FOLDERS, SHGDN_FORPARSING,
+    SHGDN_INFOLDER,
 };
 
 const SFGAO_CANCOPY: u32 = 0x0000_0001;
@@ -27,6 +30,11 @@ const SFGAO_FILESYSANCESTOR: u32 = 0x1000_0000;
 const SFGAO_FOLDER: u32 = 0x2000_0000;
 const SFGAO_FILESYSTEM: u32 = 0x4000_0000;
 const SFGAO_HASSUBFOLDER: u32 = 0x8000_0000;
+
+/// The system file-system folder (`CLSID_ShellFSFolder`); with `IPersistFolder3::InitializeEx`
+/// it shows a real folder's contents while reporting a virtual location of our choosing.
+const CLSID_SHELL_FS_FOLDER: GUID = GUID::from_u128(0xF3364BA0_65B9_11CE_A9BA_00AA004AE837);
+const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x10;
 
 fn is_unc_or_dir(target: &str) -> bool {
     let t = target.trim();
@@ -123,8 +131,78 @@ impl VirtualRootFolder {
         res
     }
 
+    /// Clone of this folder's absolute (virtual) PIDL, if Explorer initialised us.
+    fn root_abs_pidl(&self) -> Option<*mut ITEMIDLIST> {
+        let guard = self.pidl_root.lock().unwrap_or_else(|p| p.into_inner());
+        match *guard {
+            Some(ptr) if ptr != 0 => Some(unsafe { il_clone(ptr as *const ITEMIDLIST) }),
+            _ => None,
+        }
+    }
+
+    /// Binds the real folder `target` as a *delegate* file-system folder whose own location is
+    /// `virtual_abs` (the PIDL Explorer navigated to). Without this, Explorer receives a folder
+    /// that reports the real path as its location, does not match it to the navigation, and
+    /// leaves the address bar and breadcrumb on the previous folder.
+    unsafe fn bind_delegate_folder(
+        target: &str,
+        virtual_abs: *const ITEMIDLIST,
+    ) -> Result<IShellFolder> {
+        let t = target.trim();
+        if t.is_empty() || virtual_abs.is_null() {
+            return Err(E_FAIL.into());
+        }
+        let desktop = SHGetDesktopFolder()?;
+        let path_w = to_wide(t);
+        let mut target_pidl: *mut ITEMIDLIST = std::ptr::null_mut();
+        let mut attrs = 0u32;
+        desktop.ParseDisplayName(
+            HWND::default(),
+            None,
+            PCWSTR(path_w.as_ptr()),
+            None,
+            &mut target_pidl,
+            &mut attrs,
+        )?;
+        if target_pidl.is_null() {
+            return Err(E_FAIL.into());
+        }
+        let result = (|| -> Result<IShellFolder> {
+            let pf3: IPersistFolder3 =
+                CoCreateInstance(&CLSID_SHELL_FS_FOLDER, None, CLSCTX_INPROC_SERVER)?;
+            let mut info: PERSIST_FOLDER_TARGET_INFO = std::mem::zeroed();
+            info.pidlTargetFolder = target_pidl;
+            let w: Vec<u16> = t.encode_utf16().collect();
+            if w.len() < info.szTargetParsingName.len() {
+                info.szTargetParsingName[..w.len()].copy_from_slice(&w);
+            }
+            info.dwAttributes = FILE_ATTRIBUTE_DIRECTORY;
+            info.csidl = -1;
+            pf3.InitializeEx(None, virtual_abs, &info)?;
+            pf3.cast::<IShellFolder>()
+        })();
+        CoTaskMemFree(Some(target_pidl as *const c_void));
+        result
+    }
+
     unsafe fn bind_target_folder(&self, id: &str) -> Result<IShellFolder> {
         let entry = self.find_entry(id).ok_or_else(|| Error::from(E_FAIL))?;
+        if let Some(root) = self.root_abs_pidl() {
+            let item = crate::pidl::create_item_pidl(id);
+            let abs = ILCombine(
+                Some(root as *const ITEMIDLIST),
+                Some(item as *const ITEMIDLIST),
+            );
+            CoTaskMemFree(Some(item as *const c_void));
+            ILFree(Some(root as *const ITEMIDLIST));
+            if !abs.is_null() {
+                let r = Self::bind_delegate_folder(&entry.target_path, abs);
+                ILFree(Some(abs as *const ITEMIDLIST));
+                if r.is_ok() {
+                    return r;
+                }
+            }
+        }
         Self::bind_path_folder(&entry.target_path)
     }
 
@@ -132,6 +210,13 @@ impl VirtualRootFolder {
         let target = self
             .find_root_target_path()
             .ok_or_else(|| Error::from(E_FAIL))?;
+        if let Some(root) = self.root_abs_pidl() {
+            let r = Self::bind_delegate_folder(&target, root);
+            ILFree(Some(root as *const ITEMIDLIST));
+            if r.is_ok() {
+                return r;
+            }
+        }
         Self::bind_path_folder(&target)
     }
 }
