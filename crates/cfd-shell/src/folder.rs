@@ -101,6 +101,17 @@ impl VirtualRootFolder {
             .find(|e| e.enabled && e.root_id == self.root_id && e.id == id)
     }
 
+    /// Whether this root binds mapped folders as delegate (alias) folders; see
+    /// `RootFolderEntry::reveal_real_paths`.
+    fn reveal_real_paths(&self) -> bool {
+        AppConfig::load()
+            .root_folders
+            .into_iter()
+            .find(|r| r.id == self.root_id)
+            .map(|r| r.reveal_real_paths)
+            .unwrap_or(false)
+    }
+
     fn find_root_target_path(&self) -> Option<String> {
         let cfg = AppConfig::load();
         cfg.root_folders
@@ -209,6 +220,9 @@ impl VirtualRootFolder {
 
     unsafe fn bind_target_folder(&self, id: &str) -> Result<IShellFolder> {
         let entry = self.find_entry(id).ok_or_else(|| Error::from(E_FAIL))?;
+        if !self.reveal_real_paths() {
+            return Self::bind_path_folder(&entry.target_path);
+        }
         if let Some(root) = self.root_abs_pidl() {
             let item = crate::pidl::create_item_pidl(id);
             let abs = ILCombine(
@@ -238,6 +252,9 @@ impl VirtualRootFolder {
         let target = self
             .find_root_target_path()
             .ok_or_else(|| Error::from(E_FAIL))?;
+        if !self.reveal_real_paths() {
+            return Self::bind_path_folder(&target);
+        }
         if let Some(root) = self.root_abs_pidl() {
             let r = Self::bind_delegate_folder(&target, root);
             ILFree(Some(root as *const ITEMIDLIST));

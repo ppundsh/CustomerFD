@@ -59,6 +59,11 @@ pub struct RootFolderEntry {
     pub icon: String,
     #[serde(default = "default_sort_order")]
     pub sort_order_index: u32,
+    /// Bind mapped folders as Windows delegate folders (aliases of their real paths). Explorer
+    /// then also shows real-path navigation under this root and expands it in the sidebar.
+    /// Off by default: browsing `D:\\...` normally must not expand the custom folder.
+    #[serde(default)]
+    pub reveal_real_paths: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -140,6 +145,7 @@ impl Default for AppConfig {
                 target_path: String::new(),
                 icon: default_root_icon(),
                 sort_order_index: default_sort_order(),
+                reveal_real_paths: false,
             }],
             subfolders: vec![
                 SubFolderEntry {
@@ -209,6 +215,7 @@ impl AppConfig {
                             .sort_order_index
                             .take()
                             .unwrap_or_else(default_sort_order),
+                        reveal_real_paths: false,
                     });
                 }
                 for sub in &mut cfg.subfolders {
@@ -275,6 +282,7 @@ impl AppConfig {
             target_path: String::new(),
             icon: default_root_icon(),
             sort_order_index: default_sort_order() + (self.root_folders.len() as u32),
+            reveal_real_paths: false,
         })
     }
 }
