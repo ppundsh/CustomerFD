@@ -69,4 +69,4 @@
 
 ## 診斷紀錄
 
-殼層擴充套件可以把每次呼叫（含宿主程序）附加寫入 `%LOCALAPPDATA%\CustomerFD\shell-trace.log`，無法寫入時改寫 `%TEMP%\cfd-shell-trace.log`。開關是 `HKLM\Software\CustomerFD` 下的 DWORD `ShellTrace`，所以只有系統管理員能變更：控制中心（關於 › 診斷）會透過 UAC 以 `--set-shell-trace on|off` 重新啟動自己、等待結束後重新讀取設定。擴充套件每個程序只讀一次開關，因此變更要在重新啟動檔案總管後才生效。「全部清理」與解除安裝都以目前使用者身分執行，不會移除這個值。
+殼層擴充套件可以把每次呼叫（含宿主程序）附加寫入 `%LOCALAPPDATA%\CustomerFD\shell-trace.log`，無法寫入時改寫 `%TEMP%\cfd-shell-trace.log`。開關是 `HKLM\Software\CustomerFD` 下的 DWORD `ShellTrace`，所以只有系統管理員能變更：控制中心（關於 › 診斷）會透過 UAC 以 `--set-shell-trace on|off` 重新啟動自己、等待結束後重新讀取設定。擴充套件每個程序只讀一次開關，因此變更要在重新啟動檔案總管後才生效。關閉時會刪除記錄檔；因為執行中的檔案總管在重新啟動前仍會繼續寫入，控制中心在開關為關閉時，於「重新啟動檔案總管」之後與啟動時都會再刪一次。「全部清理」與解除安裝都以目前使用者身分執行，不會移除這個值。

@@ -83,6 +83,14 @@ pub fn shell_trace_log_path() -> PathBuf {
     config_dir().join("shell-trace.log")
 }
 
+/// Deletes the trace logs (main and fallback). Explorer keeps writing until it restarts with
+/// the switch off, so callers also run this after a restart and at start-up while it is off.
+pub fn remove_shell_trace_logs() {
+    for p in std::iter::once(shell_trace_log_path()).chain(shell_trace_fallback_path()) {
+        let _ = std::fs::remove_file(p);
+    }
+}
+
 /// Fallback location when [`shell_trace_log_path`] is not writable from the host process.
 pub fn shell_trace_fallback_path() -> Option<PathBuf> {
     std::env::var_os("TEMP").map(|t| PathBuf::from(t).join("cfd-shell-trace.log"))

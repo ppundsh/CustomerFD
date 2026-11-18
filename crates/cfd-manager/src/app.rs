@@ -331,6 +331,10 @@ impl AppState {
         toggles.insert(ToggleId::HideDesktop, config.hide_from_desktop as u8 as f32);
         toggles.insert(ToggleId::AutoUpdate, config.auto_check_updates as u8 as f32);
         let shell_trace = cfd_core::diagnostics::shell_trace_enabled();
+        if !shell_trace {
+            // Leftovers written by an Explorer that was still tracing when it was switched off.
+            cfd_core::diagnostics::remove_shell_trace_logs();
+        }
         toggles.insert(ToggleId::ShellTrace, shell_trace as u8 as f32);
         let mut expanders = HashMap::new();
         expanders.insert(ExpanderId::Icon, ExpanderState::new(false));
@@ -721,6 +725,10 @@ pub unsafe fn handle_action(hwnd: HWND, action: Action) {
                 if c == Confirm::RestartExplorer {
                     // Runs outside the borrow: it waits for the shell to come back.
                     let r = restart_explorer();
+                    if r.is_ok() && !cfd_core::diagnostics::shell_trace_enabled() {
+                        // The old Explorer may have kept tracing until now.
+                        cfd_core::diagnostics::remove_shell_trace_logs();
+                    }
                     with_state(|st| match r {
                         Ok(()) => st.ok(tr(
                             "已重新啟動 Windows 檔案總管。",
@@ -1175,9 +1183,10 @@ pub fn note_shell_trace(st: &mut AppState, result: usize, requested: bool) {
                 "Diagnostic logging is on. It starts after Explorer restarts.",
             ));
         } else {
+            cfd_core::diagnostics::remove_shell_trace_logs();
             st.ok(tr(
-                "已關閉診斷紀錄。重新啟動檔案總管後停止記錄。",
-                "Diagnostic logging is off. It stops after Explorer restarts.",
+                "已關閉診斷紀錄並刪除記錄檔。重新啟動檔案總管後停止記錄。",
+                "Diagnostic logging is off and the log was deleted. It stops after Explorer restarts.",
             ));
         }
     } else {
