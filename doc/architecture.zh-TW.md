@@ -66,3 +66,7 @@
 - 每次繪製時登錄「點擊區域」（hit region）；動作在**放開滑鼠**時才執行，懸停／按下狀態由區域與動作比對得出。
 - 開啟檔案或資料夾對話框時不持有狀態借用，對話框的訊息迴圈期間視窗仍可正常重繪（修正 v0.1.0 的重入問題）。
 - 更新流程見 [updates.zh-TW.md](updates.zh-TW.md)。
+
+## 診斷紀錄
+
+殼層擴充套件可以把每次呼叫（含宿主程序）附加寫入 `%LOCALAPPDATA%\CustomerFD\shell-trace.log`，無法寫入時改寫 `%TEMP%\cfd-shell-trace.log`。開關是 `HKLM\Software\CustomerFD` 下的 DWORD `ShellTrace`，所以只有系統管理員能變更：控制中心（關於 › 診斷）會透過 UAC 以 `--set-shell-trace on|off` 重新啟動自己、等待結束後重新讀取設定。擴充套件每個程序只讀一次開關，因此變更要在重新啟動檔案總管後才生效。「全部清理」與解除安裝都以目前使用者身分執行，不會移除這個值。

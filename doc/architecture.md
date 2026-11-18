@@ -45,3 +45,7 @@ Applying first removes every reserved CLSID the configuration no longer uses, th
 - Each frame registers hit regions; actions run on **mouse-up**, and hover / pressed states come from matching regions to actions.
 - File and folder dialogs run without holding the state borrow, so the window keeps repainting during their modal loops (fixes the v0.1.0 re-entrancy crash).
 - Update flow: [updates.md](updates.md).
+
+## Diagnostic logging
+
+The shell extension can append a trace of its calls (one line per call, with the host process) to `%LOCALAPPDATA%\CustomerFD\shell-trace.log`, falling back to `%TEMP%\cfd-shell-trace.log`. The switch is the DWORD `ShellTrace` under `HKLM\Software\CustomerFD`, so only an administrator can change it: the control center (About › Diagnostics) re-launches itself through UAC with `--set-shell-trace on|off`, waits for it and re-reads the value. The extension reads the switch once per process, so changes apply after Explorer restarts. Clean-up and uninstall run per user and leave this value alone.

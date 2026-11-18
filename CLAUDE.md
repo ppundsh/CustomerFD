@@ -36,7 +36,7 @@ CustomerFD 是 Windows 11 檔案總管**左側邊欄自訂資料夾**擴充套�
 - **絕不讓 panic 跨越 FFI 邊界**：每個 COM 方法與 `DllGetClassObject` 等匯出函式都要 `catch_unwind` 或保證不 panic，失敗回傳 `HRESULT`。panic 會讓 explorer.exe 當掉。
 - 不在 DLL 內做網路、長時間 I/O 或 UI；所有耗時工作放在 manager。
 - CLSID 保留區段：`{9F3B4A10-7C2E-4D8F-A512-6E8C3B9D1042}` 起算 64 個（最後 4 碼 `1042`–`1081`）。新增根資料夾只能從此區段配發；`uninstall.ps1` 依賴這個範圍。
-- 只寫 `HKCU`。不要加入任何需要 UAC 的路徑。
+- 只寫 `HKCU`。不要加入任何需要 UAC 的路徑。唯一例外是診斷紀錄開關：存在 `HKLM\Software\CustomerFD`（`ShellTrace`），只能由控制中心「關於 › 診斷」以 UAC 提權的自身程序（`--set-shell-trace on|off`）切換，見 `cfd_core::diagnostics`。不要改成檔案旗標或 HKCU。
 
 ### 設定檔
 - `AppConfig` 新增欄位一律加 `#[serde(default)]`，舊版 `config.json` 必須能讀；遷移邏輯放在 `AppConfig::load()`。

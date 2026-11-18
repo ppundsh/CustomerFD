@@ -126,5 +126,5 @@ DwmExtendFrame、`DrawThemeTextEx`、反鋸齒元件與雙主題，但和 cbxshe
 - 已確認（`shell-trace` 紀錄）：根節點對這些項目回應的 `IShellIcon::GetIconOf`、`IExtractIconW`（解析為 `imageres.dll,-3`）、`GetDetailsEx`、`GetDisplayNameOf` 都正確；但導覽時位置列沒有向根節點要 icon。
 - 已試過但無效：`IShellIcon`（4eaeef5，保留）、預先解析的 `IExtractIconW`（c03f315，保留）、根節點相對的 `ParseDisplayName`（62971fd，已撤回，從未被呼叫）。
 - 不要再試：`GetDisplayNameOf(空 PIDL)` 改回報根節點的虛擬解析名稱（79f1aa6）。`SHGetNameFromIDList` 會回頭再問根節點同一件事，無限遞迴使 explorer.exe 崩潰，已撤回（7d8ba77）。
-- 診斷方式：建立 `%LOCALAPPDATA%\CustomerFD\shell-trace.enabled` 後重啟檔案總管，紀錄寫在同目錄的 `shell-trace.log`（備援：`%TEMP%\cfd-shell-trace.log`、`%USERPROFILE%\AppData\LocalLow\CustomerFD\shell-trace.log`）。用完請刪除 `.enabled` 檔。
+- 診斷方式：在控制中心「關於 › 診斷」開啟「診斷紀錄」（需要系統管理員權限，設定存在 `HKLM\Software\CustomerFD` 的 `ShellTrace`），重新啟動檔案總管後開始記錄到 `%LOCALAPPDATA%\CustomerFD\shell-trace.log`（無法寫入時改寫 `%TEMP%\cfd-shell-trace.log`）。用完請在同一處關閉；「全部清理」與解除安裝不會移除這個 HKLM 設定。
 - 後續方向：只加紀錄、不改行為，找出位置列實際取得 icon 的介面（可能是根節點未實作、因此看不到呼叫的介面）。

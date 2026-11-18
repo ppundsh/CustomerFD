@@ -423,6 +423,11 @@ unsafe extern "system" fn wnd_proc(
             invalidate(hwnd);
             LRESULT(0)
         }
+        m if m == app::WM_APP_SHELL_TRACE => {
+            with_state(|st| app::note_shell_trace(st, wparam.0, lparam.0 != 0));
+            invalidate(hwnd);
+            LRESULT(0)
+        }
         m if m == updater::WM_APP_UPDATE => {
             with_state(app::note_update_check);
             invalidate(hwnd);
@@ -460,6 +465,19 @@ unsafe fn activate_existing() -> bool {
 const MAKEINTRESOURCE_1: *const u16 = 1 as *const u16;
 
 fn main() {
+    // Elevated helper mode (started by the control center through UAC): switch the shell
+    // diagnostic trace and exit without any UI.
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(i) = args
+        .iter()
+        .position(|a| a == cfd_core::diagnostics::SET_TRACE_ARG)
+    {
+        let on = args.get(i + 1).is_some_and(|v| v == "on");
+        std::process::exit(match cfd_core::diagnostics::set_shell_trace(on) {
+            Ok(()) => 0,
+            Err(_) => 1,
+        });
+    }
     // SAFETY: standard Win32 application start-up on the UI thread.
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);

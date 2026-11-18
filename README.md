@@ -16,7 +16,7 @@ Custom folders in the Windows 11 File Explorer sidebar — written in Rust, inst
 ### Features
 - **Your own entries in the Explorer navigation pane.** Add up to 64 root folders to the left sidebar of File Explorer, each with its own name and icon. Expand, collapse and browse them like regular folders.
 - **Any folder, anywhere, under one roof.** Map subfolders to any local or network path (`D:\Work`, `\\NAS\Share`) and reorder, enable or disable them; changes show up immediately. Optionally merge the contents of one folder into the root itself.
-- **Per-user and clean.** Everything lives in `HKCU` and `%LOCALAPPDATA%`. No UAC prompt, no system-wide changes, and a one-click clean-up that removes every trace.
+- **Per-user and clean.** Everything lives in `HKCU` and `%LOCALAPPDATA%`. No UAC prompt, no system-wide changes, and a one-click clean-up that removes every trace. (The only exception is the optional diagnostic logging switch under About › Diagnostics, which asks for administrator rights.)
 - **Windows 11 Fluent control center.** Mica backdrop, light / dark mode and accent colour that follow the system, collapsible navigation, animated controls, Traditional Chinese and English.
 - **Safe automatic updates.** The control center checks GitHub Releases at most once a day and only tells you. When you choose to install, the download must pass an Ed25519 (minisign) signature check before anything runs, and your settings are kept.
 
@@ -73,7 +73,7 @@ Requires Rust (stable, MSVC toolchain) and the Windows 10/11 SDK (`rc.exe`, for 
 ### 功能特色
 - **在檔案總管側邊欄加入自己的項目**：最多 64 個根資料夾，各自有名稱與圖示，可以像一般資料夾一樣展開、摺疊與瀏覽。
 - **把散落各處的資料夾集中在一起**：子資料夾可以對應任何本機或網路路徑（`D:\Work`、`\\NAS\Share`），可排序、啟用或停用，變更立即生效；也可以讓根資料夾直接顯示某個資料夾的內容。
-- **只影響目前使用者**：設定都在 `HKCU` 與 `%LOCALAPPDATA%`，不跳出 UAC、不修改系統範圍設定，並提供一鍵完全清理。
+- **只影響目前使用者**：設定都在 `HKCU` 與 `%LOCALAPPDATA%`，不跳出 UAC、不修改系統範圍設定，並提供一鍵完全清理。（唯一例外是「關於 › 診斷」裡選用的診斷紀錄開關，切換時需要系統管理員權限。）
 - **Windows 11 Fluent 控制中心**：Mica 背景材質，深色／淺色模式與輔色跟隨系統，可收合的導覽列與動畫控制項，支援繁體中文與英文。
 - **安全的自動更新**：控制中心每天最多向 GitHub Releases 檢查一次，只會提示；你選擇安裝後，下載的安裝檔必須先通過 Ed25519（minisign）數位簽章驗證才會執行，所有設定都會保留。
 

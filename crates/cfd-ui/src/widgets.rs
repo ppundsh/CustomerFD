@@ -44,6 +44,8 @@ pub const GLYPH_CHECK: &str = "\u{E73E}";
 pub const GLYPH_COMPLETED: &str = "\u{E930}";
 pub const GLYPH_ERROR: &str = "\u{E783}";
 pub const GLYPH_IMAGE: &str = "\u{EB9F}";
+pub const GLYPH_SHIELD: &str = "\u{EA18}";
+pub const GLYPH_BUG: &str = "\u{EBE8}";
 
 const LEFT_VC: windows::Win32::Graphics::Gdi::DRAW_TEXT_FORMAT =
     windows::Win32::Graphics::Gdi::DRAW_TEXT_FORMAT(

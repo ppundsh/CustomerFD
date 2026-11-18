@@ -1721,7 +1721,119 @@ unsafe fn page_about(
         y = rc.bottom + gap;
     }
 
-    // 4. Cleanup
+    // 4. Diagnostics
+    {
+        let log = cfd_core::diagnostics::shell_trace_log_path();
+        let row_h = scale(68, dpi);
+        let h = scale(68, dpi) + scale(2, dpi) + row_h + scale(26 + 12 + 32 + 16, dpi);
+        let rc = rect(x, y, w, h);
+        card_header(
+            st,
+            hdc,
+            fonts,
+            &rc,
+            widgets::GLYPH_BUG,
+            tr("診斷", "Diagnostics"),
+            tr(
+                "回報檔案總管相關問題時，用來記錄側邊欄擴充套件的運作",
+                "Records what the sidebar extension does, for reporting Explorer problems",
+            ),
+        );
+        let mut cy = y + scale(68, dpi);
+        widgets::expander_seam(hdc, dpi, x, cy, w);
+        cy += scale(2, dpi);
+        let row_mid = cy + row_h / 2;
+        let text_w = inner_w - scale(150, dpi);
+        draw_text(
+            hdc,
+            tr("診斷紀錄", "Diagnostic logging"),
+            &rect(inner_x, row_mid - scale(20, dpi), text_w, scale(22, dpi)),
+            th.text_primary,
+            fonts.body,
+            LEFT_VC,
+        );
+        let hint = if st.shell_trace_busy {
+            tr(
+                "等待系統管理員權限確認...",
+                "Waiting for administrator approval...",
+            )
+        } else {
+            tr(
+                "開啟或關閉需要系統管理員權限，重新啟動檔案總管後生效",
+                "Turning it on or off needs administrator rights; takes effect after Explorer restarts",
+            )
+        };
+        draw_text(
+            hdc,
+            hint,
+            &rect(inner_x, row_mid + scale(1, dpi), text_w, scale(20, dpi)),
+            th.text_muted,
+            fonts.small,
+            LEFT_VC,
+        );
+        // UAC shield left of the toggle's On/Off label: the switch asks for elevation.
+        let toggle_right = x + w - pad;
+        let shield = scale(16, dpi);
+        widgets::glyph(
+            hdc,
+            fonts.icon,
+            widgets::GLYPH_SHIELD,
+            &rect(
+                toggle_right - scale(40 + 8 + 44 + 8, dpi) - shield,
+                row_mid - shield / 2,
+                shield,
+                shield,
+            ),
+            th.text_secondary,
+        );
+        toggle(st, hdc, fonts, toggle_right, row_mid, ToggleId::ShellTrace);
+        cy += row_h;
+        let kw = scale(110, dpi);
+        draw_text(
+            hdc,
+            tr("記錄檔", "Log file"),
+            &rect(inner_x, cy, kw, scale(24, dpi)),
+            th.text_muted,
+            fonts.small,
+            LEFT_VC,
+        );
+        draw_text(
+            hdc,
+            &log.display().to_string(),
+            &rect(inner_x + kw, cy, inner_w - kw, scale(24, dpi)),
+            th.text_primary,
+            fonts.small,
+            LEFT_VC,
+        );
+        cy += scale(26 + 12, dpi);
+        let l1 = tr("開啟記錄檔", "Open log file");
+        let w1 = widgets::button_width(hdc, fonts, dpi, l1, false);
+        button(
+            st,
+            hdc,
+            fonts,
+            rect(inner_x, cy, w1, scale(32, dpi)),
+            l1,
+            ButtonKind::Standard,
+            Action::OpenTraceLog,
+            false,
+        );
+        let l2 = tr("重新啟動檔案總管", "Restart Explorer");
+        let w2 = widgets::button_width(hdc, fonts, dpi, l2, false);
+        button(
+            st,
+            hdc,
+            fonts,
+            rect(inner_x + w1 + scale(8, dpi), cy, w2, scale(32, dpi)),
+            l2,
+            ButtonKind::Standard,
+            Action::Ask(Confirm::RestartExplorer),
+            false,
+        );
+        y = rc.bottom + gap;
+    }
+
+    // 5. Cleanup
     {
         let warn = tr(
             "移除所有登錄項目、設定檔與自訂圖示。要解除安裝程式本身，請到「設定 › 應用程式 › 已安裝的應用程式」。",

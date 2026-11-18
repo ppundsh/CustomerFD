@@ -254,3 +254,68 @@ pub unsafe fn load_shell_icon(loc: &str, size: i32) -> Option<HICON> {
 pub fn folder_dialog_title() -> &'static str {
     tr("選擇目標資料夾", "Select Target Folder")
 }
+
+/// Outcome of [`set_shell_trace_elevated`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ElevatedResult {
+    Done = 0,
+    Failed = 1,
+    Cancelled = 2,
+}
+
+/// Runs this program elevated (UAC prompt) to switch the shell diagnostic trace, and waits for
+/// it. Call from a worker thread: it blocks until the elevated process exits.
+pub fn set_shell_trace_elevated(on: bool) -> ElevatedResult {
+    use windows::Win32::Foundation::{CloseHandle, ERROR_CANCELLED};
+    use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
+    use windows::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject, INFINITE};
+    use windows::Win32::UI::Shell::{
+        ShellExecuteExW, SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
+
+    let Ok(exe) = std::env::current_exe() else {
+        return ElevatedResult::Failed;
+    };
+    let exe_w = to_wide(&exe.display().to_string());
+    let args_w = to_wide(&format!(
+        "{} {}",
+        cfd_core::diagnostics::SET_TRACE_ARG,
+        if on { "on" } else { "off" }
+    ));
+    let verb_w = to_wide("runas");
+    // SAFETY: plain Win32 calls on this worker thread; every handle opened here is closed here.
+    unsafe {
+        let com = CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok();
+        let mut info = SHELLEXECUTEINFOW {
+            cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+            fMask: SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC,
+            lpVerb: PCWSTR(verb_w.as_ptr()),
+            lpFile: PCWSTR(exe_w.as_ptr()),
+            lpParameters: PCWSTR(args_w.as_ptr()),
+            nShow: SW_HIDE.0,
+            ..Default::default()
+        };
+        let launched = ShellExecuteExW(&mut info);
+        let result = match launched {
+            Err(e) if e.code() == ERROR_CANCELLED.to_hresult() => ElevatedResult::Cancelled,
+            Err(_) => ElevatedResult::Failed,
+            Ok(()) if info.hProcess.is_invalid() => ElevatedResult::Failed,
+            Ok(()) => {
+                let _ = WaitForSingleObject(info.hProcess, INFINITE);
+                let mut code = 1u32;
+                let ok = GetExitCodeProcess(info.hProcess, &mut code).is_ok();
+                let _ = CloseHandle(info.hProcess);
+                if ok && code == 0 {
+                    ElevatedResult::Done
+                } else {
+                    ElevatedResult::Failed
+                }
+            }
+        };
+        if com {
+            CoUninitialize();
+        }
+        result
+    }
+}

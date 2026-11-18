@@ -71,6 +71,7 @@ pub enum ToggleId {
     ShowInSidebar,
     HideDesktop,
     AutoUpdate,
+    ShellTrace,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -122,6 +123,7 @@ pub enum Action {
     OpenSub(usize),
     OpenConfigDir,
     OpenInstallDir,
+    OpenTraceLog,
     CheckUpdate,
     ReleaseNotes,
     OpenGitHub,
@@ -286,6 +288,10 @@ pub struct AppState {
     pub expanders: HashMap<ExpanderId, ExpanderState>,
     // update
     pub update_auto_started: bool,
+    /// Shell diagnostic trace switch (HKLM; changed only through an elevated helper).
+    pub shell_trace: bool,
+    /// An elevated switch of [`Self::shell_trace`] is waiting for the UAC prompt / helper.
+    pub shell_trace_busy: bool,
 }
 
 thread_local! {
@@ -324,6 +330,8 @@ impl AppState {
         toggles.insert(ToggleId::ShowInSidebar, config.show_in_sidebar as u8 as f32);
         toggles.insert(ToggleId::HideDesktop, config.hide_from_desktop as u8 as f32);
         toggles.insert(ToggleId::AutoUpdate, config.auto_check_updates as u8 as f32);
+        let shell_trace = cfd_core::diagnostics::shell_trace_enabled();
+        toggles.insert(ToggleId::ShellTrace, shell_trace as u8 as f32);
         let mut expanders = HashMap::new();
         expanders.insert(ExpanderId::Icon, ExpanderState::new(false));
         expanders.insert(ExpanderId::SubEditor, ExpanderState::new(true));
@@ -372,6 +380,8 @@ impl AppState {
             checks: HashMap::new(),
             expanders,
             update_auto_started: false,
+            shell_trace,
+            shell_trace_busy: false,
         };
         if just_updated {
             st.show_info(
@@ -426,6 +436,7 @@ impl AppState {
             ToggleId::ShowInSidebar => self.config.show_in_sidebar,
             ToggleId::HideDesktop => self.config.hide_from_desktop,
             ToggleId::AutoUpdate => self.config.auto_check_updates,
+            ToggleId::ShellTrace => self.shell_trace,
         }
     }
 
@@ -889,6 +900,7 @@ fn simple_action(st: &mut AppState, action: Action) {
                     st.config.auto_check_updates = !st.config.auto_check_updates;
                     let _ = st.config.save();
                 }
+                ToggleId::ShellTrace => request_shell_trace(st, !st.shell_trace),
             }
             st.start_anim();
         }
@@ -1013,6 +1025,18 @@ fn simple_action(st: &mut AppState, action: Action) {
             // SAFETY: shell open of our own folder.
             unsafe { sys::shell_open(&dir.display().to_string()) };
         }
+        Action::OpenTraceLog => {
+            let log = cfd_core::diagnostics::shell_trace_log_path();
+            let target = if log.exists() {
+                log
+            } else {
+                let dir = config_dir();
+                let _ = std::fs::create_dir_all(&dir);
+                dir
+            };
+            // SAFETY: shell open of our own log file / folder.
+            unsafe { sys::shell_open(&target.display().to_string()) };
+        }
         Action::OpenInstallDir => {
             if let Some(dir) = std::env::current_exe()
                 .ok()
@@ -1100,6 +1124,7 @@ pub fn step_animations(st: &mut AppState) -> bool {
             ToggleId::ShowInSidebar => st.config.show_in_sidebar,
             ToggleId::HideDesktop => st.config.hide_from_desktop,
             ToggleId::AutoUpdate => st.config.auto_check_updates,
+            ToggleId::ShellTrace => st.shell_trace,
         } as u8 as f32;
         active |= cfd_ui::anim::approach(v, target);
     }
@@ -1110,4 +1135,56 @@ pub fn step_animations(st: &mut AppState) -> bool {
         active |= e.press.tick();
     }
     active
+}
+
+/// Posted by the shell-trace worker; `wParam` is a [`sys::ElevatedResult`], `lParam` the
+/// requested state.
+pub const WM_APP_SHELL_TRACE: u32 = 0x8000 + 0x32;
+
+/// Switches the shell diagnostic trace through an elevated copy of this program (UAC prompt).
+fn request_shell_trace(st: &mut AppState, on: bool) {
+    if st.shell_trace_busy {
+        return;
+    }
+    st.shell_trace_busy = true;
+    let hwnd = st.hwnd.0 as usize;
+    std::thread::spawn(move || {
+        let result = sys::set_shell_trace_elevated(on);
+        // SAFETY: posting to our own window; it ignores the message once destroyed.
+        unsafe {
+            let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(
+                HWND(hwnd as *mut std::ffi::c_void),
+                WM_APP_SHELL_TRACE,
+                windows::Win32::Foundation::WPARAM(result as usize),
+                windows::Win32::Foundation::LPARAM(on as isize),
+            );
+        }
+    });
+}
+
+/// Handles [`WM_APP_SHELL_TRACE`]: re-reads the switch and reports the outcome.
+pub fn note_shell_trace(st: &mut AppState, result: usize, requested: bool) {
+    st.shell_trace_busy = false;
+    st.shell_trace = cfd_core::diagnostics::shell_trace_enabled();
+    if result == sys::ElevatedResult::Cancelled as usize {
+        // The user declined the UAC prompt: nothing changed, nothing to report.
+    } else if result == sys::ElevatedResult::Done as usize && st.shell_trace == requested {
+        if requested {
+            st.ok(tr(
+                "已開啟診斷紀錄。重新啟動檔案總管後開始記錄。",
+                "Diagnostic logging is on. It starts after Explorer restarts.",
+            ));
+        } else {
+            st.ok(tr(
+                "已關閉診斷紀錄。重新啟動檔案總管後停止記錄。",
+                "Diagnostic logging is off. It stops after Explorer restarts.",
+            ));
+        }
+    } else {
+        st.err(tr(
+            "無法變更診斷紀錄設定，需要系統管理員權限。",
+            "Could not change the diagnostic logging setting; administrator rights are required.",
+        ));
+    }
+    st.start_anim();
 }

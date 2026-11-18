@@ -89,18 +89,15 @@ pub extern "system" fn DllMain(
     true
 }
 
-/// Opt-in diagnostics: when `%LOCALAPPDATA%\CustomerFD\shell-trace.enabled` exists (checked once
-/// per process, so restart Explorer after creating it), calls are appended to `shell-trace.log`
-/// in the same folder. Off by default; costs one file-exists check per process.
+/// Opt-in diagnostics, switched machine-wide by an administrator from the control center (see
+/// `cfd_core::diagnostics`). Checked once per process, so Explorer must restart after a change.
+/// Lines go to `%LOCALAPPDATA%\CustomerFD\shell-trace.log`, or `%TEMP%\cfd-shell-trace.log`
+/// when the host process cannot write there.
 pub(crate) fn trace(msg: impl FnOnce() -> String) {
+    use cfd_core::diagnostics as diag;
     use std::io::Write;
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    let enabled = *ENABLED.get_or_init(|| {
-        cfd_core::config::config_dir()
-            .join("shell-trace.enabled")
-            .exists()
-    });
-    if !enabled {
+    if !*ENABLED.get_or_init(diag::shell_trace_enabled) {
         return;
     }
     let ms = std::time::SystemTime::now()
@@ -112,20 +109,8 @@ pub(crate) fn trace(msg: impl FnOnce() -> String) {
         .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
         .unwrap_or_default();
     let line = format!("{ms} {exe}:{} {}\n", std::process::id(), msg());
-    // Shell code may run in a lower-integrity process that can read %LOCALAPPDATA% but not write
-    // to it, so fall back to %TEMP% and to LocalLow (writable at low integrity).
-    let mut targets = vec![cfd_core::config::config_dir().join("shell-trace.log")];
-    if let Ok(tmp) = std::env::var("TEMP") {
-        targets.push(std::path::PathBuf::from(tmp).join("cfd-shell-trace.log"));
-    }
-    if let Ok(profile) = std::env::var("USERPROFILE") {
-        let low = std::path::PathBuf::from(profile)
-            .join("AppData")
-            .join("LocalLow")
-            .join("CustomerFD");
-        let _ = std::fs::create_dir_all(&low);
-        targets.push(low.join("shell-trace.log"));
-    }
+    let targets =
+        std::iter::once(diag::shell_trace_log_path()).chain(diag::shell_trace_fallback_path());
     for p in targets {
         if let Ok(mut f) = std::fs::OpenOptions::new()
             .create(true)
