@@ -14,13 +14,17 @@ use windows::Win32::Foundation::{
 use windows::Win32::System::Com::{
     CoCreateInstance, CoTaskMemFree, IBindCtx, IPersist, IPersist_Impl, CLSCTX_INPROC_SERVER,
 };
-use windows::Win32::UI::Shell::Common::{ITEMIDLIST, STRRET, STRRET_0, STRRET_WSTR};
+use windows::Win32::UI::Shell::Common::{
+    ITEMIDLIST, SHCOLSTATE, SHELLDETAILS, STRRET, STRRET_0, STRRET_WSTR,
+};
+use windows::Win32::UI::Shell::PropertiesSystem::PROPERTYKEY;
 use windows::Win32::UI::Shell::{
-    IDefaultExtractIconInit, IEnumIDList, IExtractIconW, ILCombine, ILFree, IPersistFolder,
-    IPersistFolder2, IPersistFolder2_Impl, IPersistFolder3, IPersistFolder_Impl, IShellFolder,
-    IShellFolder_Impl, IShellView, SHCreateDefaultExtractIcon, SHCreateShellFolderView,
-    SHGetDesktopFolder, SHGetNameFromIDList, PERSIST_FOLDER_TARGET_INFO, SFV_CREATE,
-    SHCONTF_FOLDERS, SHGDN_FORPARSING, SHGDN_INFOLDER, SIGDN_DESKTOPABSOLUTEPARSING,
+    IDefaultExtractIconInit, IEnumExtraSearch, IEnumIDList, IExtractIconW, ILCombine, ILFree,
+    IPersistFolder, IPersistFolder2, IPersistFolder2_Impl, IPersistFolder3, IPersistFolder_Impl,
+    IShellFolder, IShellFolder2, IShellFolder2_Impl, IShellFolder_Impl, IShellView,
+    SHCreateDefaultExtractIcon, SHCreateShellFolderView, SHGetDesktopFolder, SHGetNameFromIDList,
+    PERSIST_FOLDER_TARGET_INFO, SFV_CREATE, SHCONTF_FOLDERS, SHGDN_FORPARSING, SHGDN_INFOLDER,
+    SIGDN_DESKTOPABSOLUTEPARSING,
 };
 
 const SFGAO_CANCOPY: u32 = 0x0000_0001;
@@ -46,7 +50,7 @@ fn is_unc_or_dir(target: &str) -> bool {
     Path::new(t).is_dir()
 }
 
-#[implement(IShellFolder, IPersistFolder2, IPersistFolder, IPersist)]
+#[implement(IShellFolder2, IShellFolder, IPersistFolder2, IPersistFolder, IPersist)]
 pub struct VirtualRootFolder {
     root_id: String,
     clsid: GUID,
@@ -748,5 +752,152 @@ impl IShellFolder_Impl for VirtualRootFolder_Impl {
         _ppidlout: *mut *mut ITEMIDLIST,
     ) -> Result<()> {
         Err(E_NOTIMPL.into())
+    }
+}
+
+/// `PKEY_ItemNameDisplay` / `PKEY_ItemTypeText` / `PKEY_ItemType` (propkey.h).
+const FMTID_STORAGE_NAME: GUID = GUID::from_u128(0xB725F130_47EF_101A_A5F1_02608C9EEBAC);
+const PID_ITEM_NAME_DISPLAY: u32 = 10;
+const PID_ITEM_TYPE_TEXT: u32 = 4;
+const FMTID_ITEM_TYPE: GUID = GUID::from_u128(0x28636AA6_953D_11D2_B5D6_00C04FD918D0);
+const PID_ITEM_TYPE: u32 = 11;
+
+impl VirtualRootFolder_Impl {
+    /// The real folder that owns `pidl` (relative to this root) and the PIDL relative to it, for
+    /// items that are not our own mapped-folder entries.
+    unsafe fn owner_of(
+        &self,
+        pidl: *const ITEMIDLIST,
+    ) -> Option<(IShellFolder2, *const ITEMIDLIST)> {
+        if let Some(id) = parse_item_id(pidl) {
+            let rest = il_next(pidl);
+            if il_is_empty(rest) {
+                return None;
+            }
+            let sf = self.bind_target_folder(&id).ok()?;
+            Some((sf.cast().ok()?, rest))
+        } else {
+            let sf = self.bind_root_target_folder().ok()?;
+            Some((sf.cast().ok()?, pidl))
+        }
+    }
+}
+
+// Explorer's address bar asks the *parent* folder (IShellFolder2 / IShellItem2) for the
+// properties of the current location. Without IShellFolder2 here, navigating to a mapped folder
+// directly under the root left the address bar on the previous folder, while deeper folders
+// (whose parent is the system file-system folder) worked.
+impl IShellFolder2_Impl for VirtualRootFolder_Impl {
+    fn GetDefaultSearchGUID(&self) -> Result<GUID> {
+        Err(E_NOTIMPL.into())
+    }
+
+    fn EnumSearches(&self) -> Result<IEnumExtraSearch> {
+        Err(E_NOTIMPL.into())
+    }
+
+    fn GetDefaultColumn(&self, _dwres: u32, psort: *mut u32, pdisplay: *mut u32) -> Result<()> {
+        unsafe {
+            if !psort.is_null() {
+                *psort = 0;
+            }
+            if !pdisplay.is_null() {
+                *pdisplay = 0;
+            }
+        }
+        Ok(())
+    }
+
+    fn GetDefaultColumnState(&self, icolumn: u32) -> Result<SHCOLSTATE> {
+        if icolumn == 0 {
+            Ok(SHCOLSTATE(0x1 | 0x10)) // SHCOLSTATE_TYPE_STR | ONBYDEFAULT
+        } else {
+            Err(E_INVALIDARG.into())
+        }
+    }
+
+    fn GetDetailsEx(
+        &self,
+        pidl: *const ITEMIDLIST,
+        pscid: *const PROPERTYKEY,
+    ) -> Result<windows::core::VARIANT> {
+        if pscid.is_null() {
+            return Err(E_POINTER.into());
+        }
+        let key = unsafe { *pscid };
+        if let Some((sf, rel)) = unsafe { self.owner_of(pidl) } {
+            return unsafe { sf.GetDetailsEx(rel, &key) };
+        }
+        let id = unsafe { parse_item_id(pidl) }.ok_or_else(|| Error::from(E_INVALIDARG))?;
+        let entry = self.find_entry(&id).ok_or_else(|| Error::from(E_FAIL))?;
+        crate::trace(|| format!("GetDetailsEx item {id} key={:?}/{}", key.fmtid, key.pid));
+        if key.fmtid == FMTID_STORAGE_NAME && key.pid == PID_ITEM_NAME_DISPLAY {
+            return Ok(windows::core::VARIANT::from(windows::core::BSTR::from(
+                entry.name.as_str(),
+            )));
+        }
+        if key.fmtid == FMTID_STORAGE_NAME && key.pid == PID_ITEM_TYPE_TEXT {
+            return Ok(windows::core::VARIANT::from(windows::core::BSTR::from(
+                "File folder",
+            )));
+        }
+        if key.fmtid == FMTID_ITEM_TYPE && key.pid == PID_ITEM_TYPE {
+            return Ok(windows::core::VARIANT::from(windows::core::BSTR::from(
+                "Directory",
+            )));
+        }
+        Err(E_FAIL.into())
+    }
+
+    fn GetDetailsOf(
+        &self,
+        pidl: *const ITEMIDLIST,
+        icolumn: u32,
+        psd: *mut SHELLDETAILS,
+    ) -> Result<()> {
+        if psd.is_null() {
+            return Err(E_POINTER.into());
+        }
+        if !pidl.is_null() {
+            if let Some((sf, rel)) = unsafe { self.owner_of(pidl) } {
+                return unsafe { sf.GetDetailsOf(rel, icolumn, psd) };
+            }
+        }
+        if icolumn != 0 {
+            return Err(E_FAIL.into());
+        }
+        let text = if pidl.is_null() {
+            "Name".to_string()
+        } else {
+            let id = unsafe { parse_item_id(pidl) }.ok_or_else(|| Error::from(E_INVALIDARG))?;
+            self.find_entry(&id)
+                .map(|e| e.name)
+                .ok_or_else(|| Error::from(E_FAIL))?
+        };
+        unsafe {
+            (*psd).fmt = 0; // LVCFMT_LEFT
+            (*psd).cxChar = 30;
+            (*psd).str.uType = STRRET_WSTR.0 as u32;
+            (*psd).str.Anonymous = STRRET_0 {
+                pOleStr: alloc_pwstr(&text),
+            };
+        }
+        Ok(())
+    }
+
+    fn MapColumnToSCID(&self, icolumn: u32, pscid: *mut PROPERTYKEY) -> Result<()> {
+        if pscid.is_null() {
+            return Err(E_POINTER.into());
+        }
+        if icolumn != 0 {
+            return Err(E_FAIL.into());
+        }
+        unsafe {
+            *pscid = PROPERTYKEY {
+                fmtid: FMTID_STORAGE_NAME,
+                pid: PID_ITEM_NAME_DISPLAY,
+            };
+        }
+        Ok(())
     }
 }
