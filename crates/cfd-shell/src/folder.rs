@@ -988,7 +988,17 @@ impl IShellFolder2_Impl for VirtualRootFolder_Impl {
         }
         let key = unsafe { *pscid };
         if let Some((sf, rel)) = unsafe { self.owner_of(pidl) } {
-            return unsafe { sf.GetDetailsEx(rel, &key) };
+            let r = unsafe { sf.GetDetailsEx(rel, &key) };
+            crate::trace(|| {
+                format!(
+                    "GetDetailsEx {} key={:?}/{} -> {:?}",
+                    self.describe(pidl),
+                    key.fmtid,
+                    key.pid,
+                    r.as_ref().map(|v| v.to_string()).map_err(|e| e.code())
+                )
+            });
+            return r;
         }
         let id = unsafe { parse_item_id(pidl) }.ok_or_else(|| Error::from(E_INVALIDARG))?;
         let entry = self.find_entry(&id).ok_or_else(|| Error::from(E_FAIL))?;
