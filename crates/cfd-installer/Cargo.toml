@@ -3,6 +3,8 @@ name = "cfd-installer"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
 description = "Per-user installer, uninstaller and in-place updater for CustomerFD"
 
 build = "build.rs"

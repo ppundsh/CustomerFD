@@ -31,6 +31,21 @@ try {
     $remap += "--remap-path-prefix=$Root=/src"
     $env:RUSTFLAGS = (@($env:RUSTFLAGS) + $remap | Where-Object { $_ }) -join ' '
 
+    # Explorer keeps a registered cfd_shell.dll loaded (e.g. one registered from target\release
+    # during development). Cargo cannot replace a loaded DLL, but Windows allows renaming it.
+    foreach ($dll in @((Join-Path $relDir "cfd_shell.dll"), (Join-Path $relDir "deps\cfd_shell.dll"))) {
+        Get-ChildItem (Split-Path $dll) -Filter "cfd_shell.dll.*.old" -ErrorAction SilentlyContinue |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+        if (Test-Path $dll) {
+            try { [System.IO.File]::OpenWrite($dll).Close() }
+            catch {
+                $old = "cfd_shell.dll.$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()).old"
+                Rename-Item -Path $dll -NewName $old
+                Write-Host "    $dll is in use by Explorer; renamed to $old" -ForegroundColor Yellow
+            }
+        }
+    }
+
     Write-Host "==> Building cfd_shell.dll and cfd-manager.exe..." -ForegroundColor Cyan
     cargo build --release -p cfd-shell -p cfd-manager
     if ($LASTEXITCODE -ne 0) { throw "cargo build --release failed ($LASTEXITCODE)" }
