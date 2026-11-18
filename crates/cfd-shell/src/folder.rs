@@ -18,13 +18,14 @@ use windows::Win32::UI::Shell::Common::{
     ITEMIDLIST, SHCOLSTATE, SHELLDETAILS, STRRET, STRRET_0, STRRET_WSTR,
 };
 use windows::Win32::UI::Shell::PropertiesSystem::PROPERTYKEY;
+use windows::Win32::UI::Shell::SHBindToParent;
 use windows::Win32::UI::Shell::{
-    IDefaultExtractIconInit, IEnumExtraSearch, IEnumIDList, IExtractIconW, ILCombine, ILFree,
-    IPersistFolder, IPersistFolder2, IPersistFolder2_Impl, IPersistFolder3, IPersistFolder_Impl,
-    IShellFolder, IShellFolder2, IShellFolder2_Impl, IShellFolder_Impl, IShellView,
-    SHCreateDefaultExtractIcon, SHCreateShellFolderView, SHGetDesktopFolder, SHGetNameFromIDList,
-    PERSIST_FOLDER_TARGET_INFO, SFV_CREATE, SHCONTF_FOLDERS, SHGDN_FORPARSING, SHGDN_INFOLDER,
-    SIGDN_DESKTOPABSOLUTEPARSING,
+    IDefaultExtractIconInit, IEnumExtraSearch, IEnumIDList, IExtractIconA, IExtractIconW,
+    ILCombine, ILFree, IPersistFolder, IPersistFolder2, IPersistFolder2_Impl, IPersistFolder3,
+    IPersistFolder_Impl, IShellFolder, IShellFolder2, IShellFolder2_Impl, IShellFolder_Impl,
+    IShellView, SHCreateDefaultExtractIcon, SHCreateShellFolderView, SHGetDesktopFolder,
+    SHGetNameFromIDList, PERSIST_FOLDER_TARGET_INFO, SFV_CREATE, SHCONTF_FOLDERS, SHGDN_FORPARSING,
+    SHGDN_INFOLDER, SIGDN_DESKTOPABSOLUTEPARSING,
 };
 
 const SFGAO_CANCOPY: u32 = 0x0000_0001;
@@ -682,14 +683,17 @@ impl IShellFolder_Impl for VirtualRootFolder_Impl {
         }
 
         let iid = unsafe { *riid };
-        if iid == IExtractIconW::IID {
-            let icon_init: IDefaultExtractIconInit = unsafe { SHCreateDefaultExtractIcon()? };
-            let icon_module = to_wide("shell32.dll");
-            unsafe {
-                icon_init.SetNormalIcon(PCWSTR(icon_module.as_ptr()), -4)?;
-                icon_init.SetOpenIcon(PCWSTR(icon_module.as_ptr()), -5)?;
-                return icon_init.query(riid, ppv).ok();
-            }
+        if iid == IExtractIconW::IID || iid == IExtractIconA::IID {
+            let entry = unsafe { parse_item_id(pidl) }.and_then(|id| self.find_entry(&id));
+            let result = unsafe { item_icon(entry.as_ref(), hwndowner, riid, ppv) };
+            crate::trace(|| {
+                format!(
+                    "GetUIObjectOf icon {:?} -> {:?}",
+                    entry.as_ref().map(|e| e.id.as_str()),
+                    result.as_ref().map(|_| "ok").map_err(|e| e.code())
+                )
+            });
+            return result;
         }
 
         Err(E_NOINTERFACE.into())
@@ -900,4 +904,98 @@ impl IShellFolder2_Impl for VirtualRootFolder_Impl {
         }
         Ok(())
     }
+}
+
+/// Absolute path of a system DLL (icon locations must be absolute for the icon cache).
+fn system_dll(name: &str) -> String {
+    let root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into());
+    format!("{root}\\System32\\{name}")
+}
+
+/// Icon extractor for a mapped folder: its custom icon if set, otherwise the real folder's own
+/// icon (so desktop.ini icons show), otherwise the standard folder icon. Only icon interfaces are
+/// forwarded to the real folder: context menus or data objects of the real folder must not act
+/// on the virtual entry (a "Delete" would remove the user's actual folder).
+unsafe fn item_icon(
+    entry: Option<&SubFolderEntry>,
+    hwnd: HWND,
+    riid: *const GUID,
+    ppv: *mut *mut c_void,
+) -> Result<()> {
+    if let Some(e) = entry {
+        let custom = e.icon_path.trim();
+        if custom.is_empty() {
+            if real_folder_ui_object(&e.target_path, hwnd, riid, ppv).is_ok() {
+                return Ok(());
+            }
+        } else if *riid == IExtractIconW::IID {
+            let (path, index) = match custom.rsplit_once(',') {
+                Some((p, i)) if i.trim().parse::<i32>().is_ok() => {
+                    (p.trim().to_string(), i.trim().parse().unwrap_or(0))
+                }
+                _ => (custom.to_string(), 0),
+            };
+            let init: IDefaultExtractIconInit = SHCreateDefaultExtractIcon()?;
+            let w = to_wide(&path);
+            init.SetNormalIcon(PCWSTR(w.as_ptr()), index)?;
+            return init.query(riid, ppv).ok();
+        }
+    }
+    if *riid != IExtractIconW::IID {
+        return Err(E_NOINTERFACE.into());
+    }
+    let init: IDefaultExtractIconInit = SHCreateDefaultExtractIcon()?;
+    let module = to_wide(&system_dll("shell32.dll"));
+    init.SetNormalIcon(PCWSTR(module.as_ptr()), -4)?;
+    init.SetOpenIcon(PCWSTR(module.as_ptr()), -5)?;
+    init.query(riid, ppv).ok()
+}
+
+/// `GetUIObjectOf(riid)` of the real folder at `target`, asked of its own parent folder.
+unsafe fn real_folder_ui_object(
+    target: &str,
+    hwnd: HWND,
+    riid: *const GUID,
+    ppv: *mut *mut c_void,
+) -> Result<()> {
+    let t = target.trim();
+    if t.is_empty() {
+        return Err(E_FAIL.into());
+    }
+    let desktop = SHGetDesktopFolder()?;
+    let w = to_wide(t);
+    let mut pidl: *mut ITEMIDLIST = std::ptr::null_mut();
+    let mut attrs = 0u32;
+    desktop.ParseDisplayName(
+        HWND::default(),
+        None,
+        PCWSTR(w.as_ptr()),
+        None,
+        &mut pidl,
+        &mut attrs,
+    )?;
+    if pidl.is_null() {
+        return Err(E_FAIL.into());
+    }
+    let mut last: *mut ITEMIDLIST = std::ptr::null_mut();
+    // `last` points into `pidl`; it is not separately allocated.
+    let result = match SHBindToParent::<IShellFolder>(pidl, Some(&mut last)) {
+        Ok(parent_sf) if !last.is_null() => {
+            let child = last as *const ITEMIDLIST;
+            (Interface::vtable(&parent_sf).GetUIObjectOf)(
+                Interface::as_raw(&parent_sf),
+                hwnd,
+                1,
+                &child,
+                riid,
+                std::ptr::null(),
+                ppv,
+            )
+            .ok()
+        }
+        Ok(_) => Err(E_FAIL.into()),
+        Err(e) => Err(e),
+    };
+    CoTaskMemFree(Some(pidl as *const c_void));
+    result
 }
