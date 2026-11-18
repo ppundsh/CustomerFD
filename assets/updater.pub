@@ -1,0 +1,9 @@
+# CustomerFD update signing key (minisign / Tauri signer public key).
+#
+# Paste the public key here — any of these forms works:
+#   * the whole minisign .pub file ("untrusted comment: ..." + the RW... line)
+#   * the base64 string printed by `npx @tauri-apps/cli@2 signer generate`
+#   * just the RW... key line
+#
+# While this file has no key, the control center shows "no update signing key" and never
+# downloads or runs anything. See doc/updates.zh-TW.md (section 5) for key generation.

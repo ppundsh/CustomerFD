@@ -21,6 +21,25 @@ use windows::Win32::System::SystemServices::DLL_PROCESS_ATTACH;
 
 static MODULE_HANDLE: AtomicUsize = AtomicUsize::new(0);
 static LOCK_COUNT: AtomicI32 = AtomicI32::new(0);
+/// Live COM objects created by this DLL; `DllCanUnloadNow` must refuse while any exist,
+/// otherwise explorer.exe could unload the code under a live object and crash.
+static OBJECT_COUNT: AtomicI32 = AtomicI32::new(0);
+
+/// Embedded in every COM object to keep [`OBJECT_COUNT`] accurate.
+pub(crate) struct LiveObject;
+
+impl LiveObject {
+    pub(crate) fn new() -> Self {
+        OBJECT_COUNT.fetch_add(1, Ordering::SeqCst);
+        LiveObject
+    }
+}
+
+impl Drop for LiveObject {
+    fn drop(&mut self) {
+        OBJECT_COUNT.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 #[implement(IClassFactory)]
 struct ClassFactory {
@@ -70,12 +89,21 @@ pub extern "system" fn DllMain(
     true
 }
 
+/// Runs `f` and converts a panic into `E_FAIL`: a panic must never unwind into explorer.exe.
+fn ffi_guard(f: impl FnOnce() -> HRESULT) -> HRESULT {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or(E_FAIL)
+}
+
 #[no_mangle]
 pub unsafe extern "system" fn DllGetClassObject(
     rclsid: *const GUID,
     riid: *const GUID,
     ppv: *mut *mut c_void,
 ) -> HRESULT {
+    ffi_guard(|| get_class_object(rclsid, riid, ppv))
+}
+
+unsafe fn get_class_object(rclsid: *const GUID, riid: *const GUID, ppv: *mut *mut c_void) -> HRESULT {
     if rclsid.is_null() || riid.is_null() || ppv.is_null() {
         return E_POINTER;
     }
@@ -103,7 +131,7 @@ pub unsafe extern "system" fn DllGetClassObject(
 
 #[no_mangle]
 pub extern "system" fn DllCanUnloadNow() -> HRESULT {
-    if LOCK_COUNT.load(Ordering::SeqCst) <= 0 {
+    if LOCK_COUNT.load(Ordering::SeqCst) <= 0 && OBJECT_COUNT.load(Ordering::SeqCst) <= 0 {
         S_OK
     } else {
         S_FALSE
@@ -125,18 +153,22 @@ fn current_dll_path() -> Option<PathBuf> {
 
 #[no_mangle]
 pub extern "system" fn DllRegisterServer() -> HRESULT {
-    let Some(dll_path) = current_dll_path() else {
-        return E_FAIL;
-    };
-    let cfg = AppConfig::load();
-    match register_namespace(&cfg, &dll_path) {
-        Ok(()) => S_OK,
-        Err(_) => E_FAIL,
-    }
+    ffi_guard(|| {
+        let Some(dll_path) = current_dll_path() else {
+            return E_FAIL;
+        };
+        let cfg = AppConfig::load();
+        match register_namespace(&cfg, &dll_path) {
+            Ok(()) => S_OK,
+            Err(_) => E_FAIL,
+        }
+    })
 }
 
 #[no_mangle]
 pub extern "system" fn DllUnregisterServer() -> HRESULT {
-    unregister_namespace();
-    S_OK
+    ffi_guard(|| {
+        unregister_namespace();
+        S_OK
+    })
 }

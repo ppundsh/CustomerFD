@@ -6,6 +6,14 @@ use windows::core::GUID;
 /// {9F3B4A10-7C2E-4D8F-A512-6E8C3B9D1042}
 pub const BASE_CLSID_U128: u128 = 0x9f3b4a10_7c2e_4d8f_a512_6e8c3b9d1042;
 pub const CLSID_CUSTOMERFD_STR: &str = "{9F3B4A10-7C2E-4D8F-A512-6E8C3B9D1042}";
+/// Number of CLSIDs reserved from [`BASE_CLSID_U128`] (`uninstall.ps1` and the installer clean
+/// exactly this range), i.e. the maximum number of root folders.
+pub const MAX_ROOT_FOLDERS: u128 = 64;
+
+/// All reserved root-folder CLSIDs, formatted `{XXXXXXXX-...}`.
+pub fn reserved_clsids() -> impl Iterator<Item = String> {
+    (0..MAX_ROOT_FOLDERS).map(|i| format_guid(&GUID::from_u128(BASE_CLSID_U128 + i)))
+}
 
 pub fn format_guid(g: &GUID) -> String {
     format!(
@@ -103,6 +111,15 @@ pub struct AppConfig {
     pub root_folders: Vec<RootFolderEntry>,
     #[serde(default)]
     pub subfolders: Vec<SubFolderEntry>,
+    /// Check GitHub Releases for a newer version at most once a day (notify only).
+    #[serde(default = "default_true")]
+    pub auto_check_updates: bool,
+    /// Unix seconds of the last successful update check (0 = never).
+    #[serde(default)]
+    pub last_update_check: u64,
+    /// Navigation rail collapsed to icons.
+    #[serde(default)]
+    pub nav_collapsed: bool,
     // Legacy fields for seamless migration from v0.1.0 single-root config
     #[serde(default, skip_serializing)]
     pub root_name: Option<String>,
@@ -147,6 +164,9 @@ impl Default for AppConfig {
                     enabled: true,
                 },
             ],
+            auto_check_updates: true,
+            last_update_check: 0,
+            nav_collapsed: false,
             root_name: None,
             root_icon: None,
             sort_order_index: None,
@@ -231,7 +251,11 @@ impl AppConfig {
         }
     }
 
-    pub fn next_root_folder(&self) -> RootFolderEntry {
+    /// Next free root folder, or `None` when all [`MAX_ROOT_FOLDERS`] CLSIDs are in use.
+    pub fn next_root_folder(&self) -> Option<RootFolderEntry> {
+        if self.root_folders.len() as u128 >= MAX_ROOT_FOLDERS {
+            return None;
+        }
         let mut n = self.root_folders.len() + 1;
         let id = loop {
             let candidate = format!("root_{n}");
@@ -240,26 +264,52 @@ impl AppConfig {
             }
             n += 1;
         };
-        let mut offset = self.root_folders.len() as u128;
-        let clsid = loop {
-            let g = GUID::from_u128(BASE_CLSID_U128 + offset);
-            let s = format_guid(&g);
-            if !self
+        let clsid = reserved_clsids().find(|s| {
+            !self
                 .root_folders
                 .iter()
-                .any(|r| r.clsid.eq_ignore_ascii_case(&s))
-            {
-                break s;
-            }
-            offset += 1;
-        };
-        RootFolderEntry {
+                .any(|r| r.clsid.eq_ignore_ascii_case(s))
+        })?;
+        Some(RootFolderEntry {
             id,
             clsid,
             name: format!("自訂資料夾 {n}"),
             target_path: String::new(),
             icon: default_root_icon(),
             sort_order_index: default_sort_order() + (self.root_folders.len() as u32),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reserved_range_matches_uninstall_script() {
+        let all: Vec<String> = reserved_clsids().collect();
+        assert_eq!(all.len(), 64);
+        assert_eq!(all[0], CLSID_CUSTOMERFD_STR);
+        assert_eq!(all[63], "{9F3B4A10-7C2E-4D8F-A512-6E8C3B9D1081}");
+    }
+
+    #[test]
+    fn root_folders_are_capped() {
+        let mut cfg = AppConfig::default();
+        while let Some(r) = cfg.next_root_folder() {
+            cfg.root_folders.push(r);
         }
+        assert_eq!(cfg.root_folders.len() as u128, MAX_ROOT_FOLDERS);
+        let mut seen = std::collections::HashSet::new();
+        assert!(cfg.root_folders.iter().all(|r| seen.insert(r.clsid.to_ascii_uppercase())));
+    }
+
+    #[test]
+    fn old_config_without_new_fields_loads() {
+        let json = r#"{"show_in_sidebar":true,"hide_from_desktop":false,"ui_lang":"En","root_folders":[],"subfolders":[]}"#;
+        let cfg: AppConfig = serde_json::from_str(json).unwrap();
+        assert!(cfg.auto_check_updates);
+        assert_eq!(cfg.last_update_check, 0);
+        assert!(!cfg.nav_collapsed);
     }
 }

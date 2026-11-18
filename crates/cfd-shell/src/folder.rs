@@ -42,6 +42,7 @@ pub struct VirtualRootFolder {
     root_id: String,
     clsid: GUID,
     pidl_root: Mutex<Option<usize>>,
+    _live: crate::LiveObject,
 }
 
 impl VirtualRootFolder {
@@ -50,6 +51,7 @@ impl VirtualRootFolder {
             root_id,
             clsid,
             pidl_root: Mutex::new(None),
+            _live: crate::LiveObject::new(),
         }
     }
 }
@@ -60,6 +62,7 @@ impl Default for VirtualRootFolder {
             root_id: "root_1".to_string(),
             clsid: GUID::from_u128(BASE_CLSID_U128),
             pidl_root: Mutex::new(None),
+            _live: crate::LiveObject::new(),
         }
     }
 }
@@ -139,7 +142,7 @@ impl IPersist_Impl for VirtualRootFolder_Impl {
 
 impl IPersistFolder_Impl for VirtualRootFolder_Impl {
     fn Initialize(&self, pidl: *const ITEMIDLIST) -> Result<()> {
-        let mut guard = self.pidl_root.lock().unwrap();
+        let mut guard = self.pidl_root.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(old) = guard.take() {
             unsafe { CoTaskMemFree(Some(old as *const c_void)) };
         }
@@ -153,7 +156,7 @@ impl IPersistFolder_Impl for VirtualRootFolder_Impl {
 
 impl IPersistFolder2_Impl for VirtualRootFolder_Impl {
     fn GetCurFolder(&self) -> Result<*mut ITEMIDLIST> {
-        let guard = self.pidl_root.lock().unwrap();
+        let guard = self.pidl_root.lock().unwrap_or_else(|p| p.into_inner());
         match *guard {
             Some(ptr) if ptr != 0 => Ok(unsafe { il_clone(ptr as *const ITEMIDLIST) }),
             _ => Err(E_FAIL.into()),

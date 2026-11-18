@@ -3,7 +3,8 @@ name = "cfd-manager"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Windows 11 Fluent Control Center GUI for CustomerFD"
+description = "Windows 11 Fluent control center for CustomerFD"
+build = "build.rs"
 
 [[bin]]
 name = "cfd-manager"
@@ -11,5 +12,9 @@ path = "src/main.rs"
 
 [dependencies]
 cfd-core = { path = "../cfd-core" }
+cfd-ui = { path = "../cfd-ui" }
+serde_json.workspace = true
 windows.workspace = true
 windows-core.workspace = true
+minisign-verify.workspace = true
+ed25519-compact.workspace = true

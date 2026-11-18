@@ -34,7 +34,7 @@ checksum = "8f1fe948ff07f4bd06c30984e69f5b4899c516a3ef74f34df92a2df2ab535495"
 
 [[package]]
 name = "cfd-core"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "image",
  "serde",
@@ -44,8 +44,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "cfd-installer"
+version = "0.3.0"
+dependencies = [
+ "cfd-core",
+ "cfd-ui",
+ "windows",
+ "windows-core",
+]
+
+[[package]]
 name = "cfd-manager"
-version = "0.1.0"
+version = "0.3.0"
+dependencies = [
+ "cfd-core",
+ "cfd-ui",
+ "ed25519-compact",
+ "minisign-verify",
+ "serde_json",
+ "windows",
+ "windows-core",
+]
+
+[[package]]
+name = "cfd-shell"
+version = "0.3.0"
 dependencies = [
  "cfd-core",
  "windows",
@@ -53,10 +76,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "cfd-shell"
-version = "0.1.0"
+name = "cfd-ui"
+version = "0.3.0"
 dependencies = [
- "cfd-core",
  "windows",
  "windows-core",
 ]
@@ -81,6 +103,12 @@ checksum = "2b929dd2a135771f40afabd1073f85eed59c800b7c61901e5c254270497dad64"
 dependencies = [
  "cfg-if",
 ]
+
+[[package]]
+name = "ed25519-compact"
+version = "2.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9547879431a90e352a35863a54416d92898a787b9af09e6ae2e09a96bd78be80"
 
 [[package]]
 name = "fdeflate"
@@ -151,6 +179,12 @@ name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
+
+[[package]]
+name = "minisign-verify"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22f9645cb765ea72b8111f36c522475d2daa0d22c957a9826437e97534bc4e9e"
 
 [[package]]
 name = "miniz_oxide"

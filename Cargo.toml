@@ -2,20 +2,27 @@
 resolver = "2"
 members = [
     "crates/cfd-core",
+    "crates/cfd-ui",
     "crates/cfd-shell",
     "crates/cfd-manager",
+    "crates/cfd-installer",
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
-authors = ["CustomerFD contributors"]
+authors = ["ppundsh"]
+repository = "https://github.com/ppundsh/CustomerFD"
 
 [workspace.dependencies]
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "ico", "webp", "gif"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# Ed25519 (minisign) verification of downloaded installers; pure Rust.
+minisign-verify = "0.2"
+# Ed25519 check of an optional maintainer (YubiKey / FIDO2) release approval; pure Rust.
+ed25519-compact = { version = "2", default-features = false }
 windows = { version = "0.58", features = [
     "implement",
     "Win32_Foundation",
@@ -33,6 +40,8 @@ windows = { version = "0.58", features = [
     "Win32_System_Threading",
     "Win32_UI_Controls",
     "Win32_UI_HiDpi",
+    "Win32_UI_Input_Ime",
+    "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_Shell_Common",
     "Win32_UI_Shell_PropertiesSystem",

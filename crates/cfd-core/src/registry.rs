@@ -1,9 +1,9 @@
 use crate::config::{
-    config_dir, format_guid, to_wide, AppConfig, RootFolderEntry, BASE_CLSID_U128,
+    config_dir, to_wide, AppConfig, RootFolderEntry,
     CLSID_CUSTOMERFD_STR,
 };
 use std::path::{Path, PathBuf};
-use windows::core::{GUID, PCWSTR};
+use windows::core::PCWSTR;
 use windows::Win32::Foundation::ERROR_SUCCESS;
 use windows::Win32::System::Com::CoTaskMemFree;
 use windows::Win32::System::Registry::{
@@ -266,9 +266,8 @@ pub fn register_namespace(cfg: &AppConfig, dll_path: &Path) -> Result<(), String
         .to_str()
         .ok_or_else(|| "Invalid DLL path encoding".to_string())?;
 
-    // Remove stale CLSIDs in our reserved range [0..64)
-    for offset in 0..64u128 {
-        let clsid = format_guid(&GUID::from_u128(BASE_CLSID_U128 + offset));
+    // Remove stale CLSIDs in our reserved range.
+    for clsid in crate::config::reserved_clsids() {
         if !cfg
             .root_folders
             .iter()
@@ -291,8 +290,7 @@ pub fn unregister_namespace() {
     for root in &cfg.root_folders {
         unregister_single_clsid(&root.clsid);
     }
-    for offset in 0..64u128 {
-        let clsid = format_guid(&GUID::from_u128(BASE_CLSID_U128 + offset));
+    for clsid in crate::config::reserved_clsids() {
         unregister_single_clsid(&clsid);
     }
     notify_explorer_refresh();
@@ -326,10 +324,29 @@ pub fn notify_explorer_refresh() {
 }
 
 pub fn restart_explorer() -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
     use std::process::Command;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let explorer_running = || {
+        Command::new("tasklist")
+            .args(["/FI", "IMAGENAME eq explorer.exe", "/NH"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).to_ascii_lowercase().contains("explorer.exe"))
+            .unwrap_or(false)
+    };
     let _ = Command::new("taskkill")
         .args(["/F", "/IM", "explorer.exe"])
+        .creation_flags(CREATE_NO_WINDOW)
         .output();
+    // Windows usually restarts the shell by itself (AutoRestartShell); only start it when it
+    // has not come back, otherwise a stray File Explorer window would open.
+    for _ in 0..15 {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        if explorer_running() {
+            return Ok(());
+        }
+    }
     Command::new("explorer.exe")
         .spawn()
         .map_err(|e| format!("Failed to launch explorer.exe: {e}"))?;

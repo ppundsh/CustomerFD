@@ -1,0 +1,10 @@
+[package]
+name = "cfd-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Windows 11 Fluent drawing toolkit (Mica backdrop, tokens, controls) shared by the CustomerFD control center and installer"
+
+[dependencies]
+windows.workspace = true
+windows-core.workspace = true

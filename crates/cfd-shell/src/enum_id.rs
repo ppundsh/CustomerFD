@@ -15,6 +15,7 @@ pub struct VirtualEnumIDList {
     entries: Vec<SubFolderEntry>,
     index: Mutex<usize>,
     target_enum: Mutex<AptEnum>,
+    _live: crate::LiveObject,
 }
 
 impl VirtualEnumIDList {
@@ -23,6 +24,7 @@ impl VirtualEnumIDList {
             entries,
             index: Mutex::new(0),
             target_enum: Mutex::new(AptEnum(target_enum)),
+            _live: crate::LiveObject::new(),
         }
     }
 }
@@ -37,7 +39,7 @@ impl IEnumIDList_Impl for VirtualEnumIDList_Impl {
         if rgelt.is_null() {
             return E_INVALIDARG;
         }
-        let mut idx = self.index.lock().unwrap();
+        let mut idx = self.index.lock().unwrap_or_else(|p| p.into_inner());
         let mut fetched = 0u32;
 
         while fetched < celt && *idx < self.entries.len() {
@@ -79,7 +81,7 @@ impl IEnumIDList_Impl for VirtualEnumIDList_Impl {
     }
 
     fn Skip(&self, celt: u32) -> HRESULT {
-        let mut idx = self.index.lock().unwrap();
+        let mut idx = self.index.lock().unwrap_or_else(|p| p.into_inner());
         let next = (*idx).saturating_add(celt as usize);
         if next > self.entries.len() {
             let extra = (next - self.entries.len()) as u32;
@@ -97,7 +99,7 @@ impl IEnumIDList_Impl for VirtualEnumIDList_Impl {
     }
 
     fn Reset(&self) -> HRESULT {
-        let mut idx = self.index.lock().unwrap();
+        let mut idx = self.index.lock().unwrap_or_else(|p| p.into_inner());
         *idx = 0;
         if let Ok(guard) = self.target_enum.lock() {
             if let Some(ref te) = guard.0 {
@@ -111,7 +113,7 @@ impl IEnumIDList_Impl for VirtualEnumIDList_Impl {
         if ppenum.is_null() {
             return E_POINTER;
         }
-        let idx = *self.index.lock().unwrap();
+        let idx = *self.index.lock().unwrap_or_else(|p| p.into_inner());
         let cloned_target = self.target_enum.lock().ok().and_then(|g| {
             g.0.as_ref().and_then(|te| {
                 let mut out: Option<IEnumIDList> = None;
@@ -126,6 +128,7 @@ impl IEnumIDList_Impl for VirtualEnumIDList_Impl {
             entries: self.entries.clone(),
             index: Mutex::new(idx),
             target_enum: Mutex::new(AptEnum(cloned_target)),
+            _live: crate::LiveObject::new(),
         }
         .into();
         unsafe {

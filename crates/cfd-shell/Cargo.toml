@@ -5,6 +5,8 @@ edition.workspace = true
 license.workspace = true
 description = "Windows 11 Explorer Shell Namespace Extension DLL for CustomerFD"
 
+build = "build.rs"
+
 [lib]
 name = "cfd_shell"
 crate-type = ["cdylib"]

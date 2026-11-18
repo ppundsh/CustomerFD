@@ -1,0 +1,8 @@
+# CustomerFD release approvers — maintainer YubiKey (FIDO2) public keys. OPTIONAL.
+#
+# Leave this file without key lines to rely on the CI minisign signature alone (current setup).
+# Once at least one key is listed, the updater in builds made from this source refuses any update
+# whose latest.json lacks an approval signed with one of these keys
+# (ssh-keygen -Y sign -n customerfd-release, touch + PIN). Only hardware-backed
+# "sk-ssh-ed25519@openssh.com" keys are accepted. One key per line, e.g.
+# sk-ssh-ed25519@openssh.com AAAAGnNr... (YubiKey)

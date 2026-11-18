@@ -1,0 +1,16 @@
+[package]
+name = "cfd-installer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Per-user installer, uninstaller and in-place updater for CustomerFD"
+
+[[bin]]
+name = "cfd-installer"
+path = "src/main.rs"
+
+[dependencies]
+cfd-core = { path = "../cfd-core" }
+cfd-ui = { path = "../cfd-ui" }
+windows.workspace = true
+windows-core.workspace = true
