@@ -31,10 +31,19 @@ use windows::Win32::UI::Shell::{IShellIcon, IShellIcon_Impl, SHBindToParent, Str
 
 const SFGAO_CANCOPY: u32 = 0x0000_0001;
 const SFGAO_CANLINK: u32 = 0x0000_0004;
+const SFGAO_STORAGEANCESTOR: u32 = 0x0080_0000;
 const SFGAO_BROWSABLE: u32 = 0x0800_0000;
 const SFGAO_FILESYSANCESTOR: u32 = 0x1000_0000;
 const SFGAO_FOLDER: u32 = 0x2000_0000;
 const SFGAO_HASSUBFOLDER: u32 = 0x8000_0000;
+/// Attributes of the root and of mapped folders. FILESYSANCESTOR / STORAGEANCESTOR mark them as
+/// containing file-system folders: the common file dialogs (Save As in particular) hide
+/// navigation-pane items without them.
+const CONTAINER_ATTRS: u32 = SFGAO_FOLDER
+    | SFGAO_HASSUBFOLDER
+    | SFGAO_BROWSABLE
+    | SFGAO_FILESYSANCESTOR
+    | SFGAO_STORAGEANCESTOR;
 
 /// The system file-system folder (`CLSID_ShellFSFolder`); with `IPersistFolder3::InitializeEx`
 /// it shows a real folder's contents while reporting a virtual location of our choosing.
@@ -334,7 +343,7 @@ impl IShellFolder_Impl for VirtualRootFolder_Impl {
                 unsafe {
                     *ppidl = item;
                     if !pdwattributes.is_null() {
-                        *pdwattributes &= SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_BROWSABLE;
+                        *pdwattributes &= CONTAINER_ATTRS;
                     }
                 }
                 crate::trace(|| format!("ParseDisplayName {full:?} -> item {}", entry.id));
@@ -626,7 +635,7 @@ impl IShellFolder_Impl for VirtualRootFolder_Impl {
         }
         if cidl == 0 || apidl.is_null() {
             unsafe {
-                *rgfinout &= SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_BROWSABLE;
+                *rgfinout &= CONTAINER_ATTRS;
             }
             return Ok(());
         }
@@ -640,6 +649,7 @@ impl IShellFolder_Impl for VirtualRootFolder_Impl {
                     let mut item_attrs = SFGAO_FOLDER
                         | SFGAO_BROWSABLE
                         | SFGAO_FILESYSANCESTOR
+                        | SFGAO_STORAGEANCESTOR
                         | SFGAO_CANCOPY
                         | SFGAO_CANLINK;
                     if let Some(entry) = self.find_entry(&id) {

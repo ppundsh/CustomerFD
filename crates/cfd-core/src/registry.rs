@@ -226,7 +226,9 @@ fn register_single_root(
     )?;
 
     let sf_key = format!("{clsid_base}\\ShellFolder");
-    write_reg_dword(HKEY_CURRENT_USER, &sf_key, "Attributes", 0xA800_0000)?;
+    // SFGAO_HASSUBFOLDER | FOLDER | FILESYSANCESTOR | BROWSABLE | STORAGEANCESTOR. Without
+    // FILESYSANCESTOR the common file dialogs (Save As) leave the root out of their sidebar.
+    write_reg_dword(HKEY_CURRENT_USER, &sf_key, "Attributes", 0xB880_0000)?;
     write_reg_dword(HKEY_CURRENT_USER, &sf_key, "FolderValueFlags", 0x28)?;
 
     let ns_key = format!(
