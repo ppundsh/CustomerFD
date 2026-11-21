@@ -34,7 +34,7 @@ checksum = "8f1fe948ff07f4bd06c30984e69f5b4899c516a3ef74f34df92a2df2ab535495"
 
 [[package]]
 name = "cfd-core"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "image",
  "serde",
@@ -45,7 +45,7 @@ dependencies = [
 
 [[package]]
 name = "cfd-installer"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "cfd-core",
  "cfd-ui",
@@ -55,7 +55,7 @@ dependencies = [
 
 [[package]]
 name = "cfd-manager"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "cfd-core",
  "cfd-ui",
@@ -68,7 +68,7 @@ dependencies = [
 
 [[package]]
 name = "cfd-shell"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "cfd-core",
  "windows",
@@ -77,7 +77,7 @@ dependencies = [
 
 [[package]]
 name = "cfd-ui"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "windows",
  "windows-core",
