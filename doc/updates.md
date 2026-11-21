@@ -26,7 +26,12 @@ Command line:
 | `--dir <folder>` | Install folder |
 | `--uninstall [--quiet] [--purge]` | Uninstall; `--purge` also deletes `%LOCALAPPDATA%\CustomerFD` (settings and custom icons). Interactive mode asks |
 | `--update --dir <folder> [--wait-pid <PID>]` | **In-place update**: waits for the control center to exit, replaces the program files, re-registers only if the sidebar was registered before, updates `DisplayVersion`, **keeps all settings**, then reopens the control center with `--updated`. Used by the updater |
+| `--check [--quiet]` | Environment check, plus a self-test of the installed version if there is one; shows the result (exit code only with `--quiet`) |
 | `--lang zh-TW` / `--lang en` | Installer language (defaults to `config.json`) |
+
+Exit codes of the quiet modes: `0` OK, `1` install failed, `2` this PC cannot run CustomerFD, `3` installed but the self-test failed.
+
+**Environment check and self-test.** Before installing, Setup checks that this is x64 Windows 10 1803 (build 17134) or later and not Windows on ARM64 (whose File Explorer cannot load the x64 extension); those are blockers and disable the Install button. It also warns, without blocking, about Windows 10 (Acrylic instead of Mica), a missing Explorer taskbar (RemoteApp, Server Core, replacement shells) and running elevated (a different administrator account would get the sidebar instead of you). After installing or updating, a self-test checks that every sidebar root is registered to the installed `cfd_shell.dll` and instantiates each one through COM the way Explorer does; a failure is reported but does not undo the installation.
 
 `cfd_shell.dll` cannot be overwritten while Explorer has it loaded, so the installer renames it to `cfd_shell.dll.N.old` first (Windows allows renaming a loaded DLL) and removes such files on the next install or update. Explorer uses the new extension after it restarts; the control center says so after an update. On uninstall a still-loaded DLL is moved to `%TEMP%`, and a hidden `cmd` removes the install folder after the uninstaller exits.
 

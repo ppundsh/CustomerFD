@@ -19,7 +19,7 @@ pub const APP_NAME: &str = "CustomerFD";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const UNINSTALL_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\CustomerFD";
 const MANAGER_EXE: &str = "cfd-manager.exe";
-const SHELL_DLL: &str = "cfd_shell.dll";
+pub const SHELL_DLL: &str = "cfd_shell.dll";
 const UNINSTALLER_EXE: &str = "uninstall.exe";
 const MANAGER_CLASS: &str = "CustomerFDManagerWindow";
 

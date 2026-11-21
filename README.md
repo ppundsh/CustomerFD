@@ -37,7 +37,7 @@ Command-line options:
 Uninstall from **Settings › Apps › Installed apps › CustomerFD**.
 
 ### Requirements
-Windows 11 (Windows 10 1803+ works with an Acrylic instead of a Mica backdrop), x64.
+Windows 11 (Windows 10 1803+ works with an Acrylic instead of a Mica backdrop), x64. Windows on ARM64 is not supported. Setup checks these before installing and self-tests the sidebar afterwards (`CustomerFD-Setup.exe --check` runs the check on its own).
 
 ### Build from source
 Requires Rust (stable, MSVC toolchain) and the Windows 10/11 SDK (`rc.exe`, for icons and version info).
@@ -94,7 +94,7 @@ Requires Rust (stable, MSVC toolchain) and the Windows 10/11 SDK (`rc.exe`, for 
 解除安裝：「設定 › 應用程式 › 已安裝的應用程式 › CustomerFD」。
 
 ### 系統需求
-Windows 11（Windows 10 1803 以上也可使用，背景材質改為 Acrylic），x64。
+Windows 11（Windows 10 1803 以上也可使用，背景材質改為 Acrylic），x64。不支援 ARM64 版 Windows。安裝程式會在安裝前檢查這些條件，安裝後自我測試側邊欄（`CustomerFD-Setup.exe --check` 可單獨執行檢查）。
 
 ### 從原始碼建置
 需要 Rust（stable，MSVC 工具鏈）與 Windows 10/11 SDK（`rc.exe`，用於圖示與版本資訊）。

@@ -9,11 +9,16 @@
 //! --quiet | --silent | /s  [--dir <folder>]   silent install
 //! --uninstall [--quiet] [--purge]             uninstall (--purge also deletes settings)
 //! --update --dir <folder> [--wait-pid <pid>]  in-place update (used by the control center)
+//! --check                                     environment check (+ self-test when installed)
 //! --lang zh-TW | en                           UI language
 //! ```
+//!
+//! Exit codes of the quiet modes: 0 ok, 1 install failed, 2 environment not supported,
+//! 3 installed but the self-test failed.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod env_check;
 mod install;
 
 use cfd_core::config::{AppConfig, UiLang};
@@ -73,6 +78,7 @@ struct Args {
     dir: Option<PathBuf>,
     wait_pid: Option<u32>,
     lang: Option<bool>,
+    check: bool,
 }
 
 fn parse_args() -> Args {
@@ -84,6 +90,7 @@ fn parse_args() -> Args {
         dir: None,
         wait_pid: None,
         lang: None,
+        check: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(s) = it.next() {
@@ -92,6 +99,7 @@ fn parse_args() -> Args {
             "--uninstall" | "/uninstall" => a.uninstall = true,
             "--purge" => a.purge = true,
             "--update" => a.update = true,
+            "--check" | "/check" => a.check = true,
             "--dir" => a.dir = it.next().map(PathBuf::from),
             "--wait-pid" => a.wait_pid = it.next().and_then(|p| p.parse().ok()),
             "--lang" => a.lang = it.next().map(|l| l.to_ascii_lowercase().starts_with("en")),
@@ -127,6 +135,8 @@ struct Ui {
     mouse: (i32, i32),
     pressed: Option<Act>,
     busy: bool,
+    /// Environment check results, shown as info bars above the licence line.
+    findings: Vec<env_check::Finding>,
 }
 
 thread_local! {
@@ -329,6 +339,26 @@ unsafe fn draw(ui: &mut Ui, hdc: HDC, w: i32, h: i32) {
     }
     y = card.bottom + scale(12, dpi);
 
+    // environment check
+    for f in &ui.findings {
+        let sev = match f.level {
+            env_check::Level::Blocker => widgets::Severity::Error,
+            env_check::Level::Warning => widgets::Severity::Warning,
+        };
+        let bh = widgets::info_bar_height(hdc, &fonts, dpi, cw, &f.text);
+        let _ = widgets::info_bar(
+            hdc,
+            &fonts,
+            dpi,
+            &rect(m, y, cw, bh),
+            sev,
+            &f.text,
+            false,
+            false,
+        );
+        y += bh + scale(8, dpi);
+    }
+
     // licence line
     let lic = tr(
         "CustomerFD 以 GNU GPL v3.0 或更新版本授權釋出。Copyright © 2026 ppundsh",
@@ -384,6 +414,7 @@ unsafe fn draw(ui: &mut Ui, hdc: HDC, w: i32, h: i32) {
     } else {
         tr("安裝", "Install")
     };
+    let blocked = env_check::has_blocker(&ui.findings);
     let (hv, pr) = ui.hot(irc, Act::Install);
     widgets::button(
         hdc,
@@ -394,7 +425,7 @@ unsafe fn draw(ui: &mut Ui, hdc: HDC, w: i32, h: i32) {
         ButtonKind::Accent,
         hv,
         pr,
-        ui.busy,
+        ui.busy || blocked,
     );
     let (hv, pr) = ui.hot(crc, Act::Cancel);
     widgets::button(
@@ -461,6 +492,9 @@ unsafe fn act(hwnd: HWND, a: Act) {
             return;
         }
         Act::Install => {
+            if with_ui(|u| env_check::has_blocker(&u.findings)).unwrap_or(false) {
+                return;
+            }
             let Some((dir, opts, launch, update)) = with_ui(|u| {
                 u.busy = true;
                 (
@@ -482,6 +516,13 @@ unsafe fn act(hwnd: HWND, a: Act) {
             }
             match install::install(&dir, opts, false) {
                 Ok(()) => {
+                    if let Err(e) = env_check::verify_install(&dir, opts.register) {
+                        msg_box(
+                            hwnd,
+                            &format!("{}\n\n{e}", self_test_failed()),
+                            MB_OK | MB_ICONWARNING,
+                        );
+                    }
                     if launch {
                         install::launch_manager(&dir, false);
                     } else {
@@ -605,7 +646,19 @@ unsafe fn run_gui() {
     RegisterClassW(&wc);
     let dpi = GetDpiForSystem().max(96);
     let style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
-    let mut r = rect(0, 0, scale(600, dpi), scale(440, dpi));
+    let findings = env_check::check();
+    let extra = {
+        let hdc = GetDC(None);
+        let fonts = Fonts::new(hdc, dpi);
+        let w = scale(600 - 48, dpi);
+        let h: i32 = findings
+            .iter()
+            .map(|f| widgets::info_bar_height(hdc, &fonts, dpi, w, &f.text) + scale(8, dpi))
+            .sum();
+        ReleaseDC(None, hdc);
+        h
+    };
+    let mut r = rect(0, 0, scale(600, dpi), scale(440, dpi) + extra);
     let _ = AdjustWindowRectEx(&mut r, style, false, WINDOW_EX_STYLE::default());
     let (ww, wh) = (r.right - r.left, r.bottom - r.top);
     let x = (GetSystemMetrics(SM_CXSCREEN) - ww) / 2;
@@ -624,6 +677,7 @@ unsafe fn run_gui() {
             mouse: (-1, -1),
             pressed: None,
             busy: false,
+            findings,
         })
     });
     let title = to_wide(tr("CustomerFD 安裝程式", "CustomerFD Setup"));
@@ -669,6 +723,47 @@ fn main() {
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
     }
     refresh_system_theme(None);
+
+    if args.check {
+        let findings = env_check::check();
+        let mut text = if findings.is_empty() {
+            tr(
+                "這部電腦符合 CustomerFD 的執行環境。",
+                "This PC meets CustomerFD's requirements.",
+            )
+            .to_string()
+        } else {
+            env_check::report(&findings)
+        };
+        let mut code = if env_check::has_blocker(&findings) {
+            2
+        } else {
+            0
+        };
+        if let Some(dir) = install::installed_dir() {
+            let test = env_check::verify_install(&dir, cfd_core::registry::is_registered());
+            text.push_str("\n\n");
+            match test {
+                Ok(()) => text.push_str(tr(
+                    "已安裝的版本通過自我測試。",
+                    "The installed version passed the self-test.",
+                )),
+                Err(e) => {
+                    text.push_str(&format!("{}\n{e}", self_test_failed()));
+                    code = code.max(3);
+                }
+            }
+        }
+        if !args.quiet {
+            let icon = if code == 0 {
+                MB_ICONINFORMATION
+            } else {
+                MB_ICONWARNING
+            };
+            msg_box(HWND::default(), &text, MB_OK | icon);
+        }
+        std::process::exit(code);
+    }
 
     if args.uninstall {
         if !args.quiet {
@@ -716,7 +811,17 @@ fn main() {
             },
             true,
         ) {
-            Ok(()) => install::launch_manager(&dir, true),
+            Ok(()) => {
+                if let Err(e) = env_check::verify_install(&dir, cfd_core::registry::is_registered())
+                {
+                    msg_box(
+                        HWND::default(),
+                        &format!("{}\n\n{e}", self_test_failed()),
+                        MB_OK | MB_ICONWARNING,
+                    );
+                }
+                install::launch_manager(&dir, true)
+            }
             Err(e) => {
                 msg_box(
                     HWND::default(),
@@ -736,6 +841,9 @@ fn main() {
     }
 
     if args.quiet {
+        if env_check::has_blocker(&env_check::check()) {
+            std::process::exit(2);
+        }
         let dir = args
             .dir
             .clone()
@@ -757,9 +865,19 @@ fn main() {
         {
             std::process::exit(1);
         }
+        if env_check::verify_install(&dir, true).is_err() {
+            std::process::exit(3);
+        }
         return;
     }
 
     // SAFETY: GUI on the main thread.
     unsafe { run_gui() };
+}
+
+fn self_test_failed() -> &'static str {
+    tr(
+        "CustomerFD 已安裝，但自我測試發現問題，側邊欄可能無法正常顯示：",
+        "CustomerFD is installed, but the self-test found a problem; the sidebar may not work:",
+    )
 }
