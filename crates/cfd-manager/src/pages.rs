@@ -1628,8 +1628,22 @@ unsafe fn page_about(
             .or_else(|| find_shell_dll().map(|p| p.display().to_string()))
             .unwrap_or_else(|| tr("找不到 cfd_shell.dll", "cfd_shell.dll not found").to_string());
         let cfg = config_dir().display().to_string();
+        // 32-bit programs (their Open / Save As dialogs) use the x86 build, registered separately.
+        let dll32 = st
+            .config
+            .root_folders
+            .first()
+            .and_then(|r| cfd_core::registry::registered_dll_path_32(&r.clsid))
+            .unwrap_or_else(|| {
+                tr(
+                    "未註冊（32 位元程式的開啟／另存新檔視窗看不到側邊欄項目）",
+                    "Not registered (32-bit programs' Open / Save As dialogs will not show the sidebar items)",
+                )
+                .to_string()
+            });
         let lines = [
             (tr("擴充套件", "Extension"), dll),
+            (tr("32 位元擴充套件", "32-bit extension"), dll32),
             (tr("設定資料夾", "Settings folder"), cfg),
             (
                 tr("CLSID 範圍", "CLSID range"),

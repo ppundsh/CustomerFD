@@ -12,7 +12,7 @@ CustomerFD 以單一安裝檔 `CustomerFD-Setup.exe` 發行，安裝於目前使
 |---|---|
 | 安裝位置 | `%LOCALAPPDATA%\Programs\CustomerFD`（可用 `--dir` 或安裝畫面的「變更...」指定） |
 | 權限 | `asInvoker`，只寫入 HKCU；不需要 UAC |
-| 安裝內容 | `cfd-manager.exe`、`cfd_shell.dll`、`uninstall.exe`（即安裝程式本身）、`LICENSE.txt`、`README.md` |
+| 安裝內容 | `cfd-manager.exe`、`cfd_shell.dll`（x64，給檔案總管與 64 位元程式）、`x86\cfd_shell.dll`（給 32 位元程式的開啟／另存新檔視窗）、`uninstall.exe`（即安裝程式本身）、`LICENSE.txt`、`README.md` |
 | 解除安裝 | 註冊於「設定 › 應用程式 › 已安裝的應用程式」（`HKCU\…\Uninstall\CustomerFD`：`DisplayVersion`、`UninstallString`、`QuietUninstallString`） |
 | 開始功能表 | 「CustomerFD」捷徑（指向 `cfd-manager.exe`） |
 | 側邊欄註冊 | 安裝程式直接呼叫 `cfd_shell.dll` 的 `DllRegisterServer`（依現有 `config.json` 寫入 HKCU），不使用 `regsvr32` |

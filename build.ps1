@@ -3,7 +3,8 @@
 .SYNOPSIS
     Builds CustomerFD (release) and packages dist\CustomerFD-Setup.exe.
 .DESCRIPTION
-    1. Builds cfd_shell.dll and cfd-manager.exe.
+    1. Builds cfd_shell.dll (x64 and, for 32-bit programs' Open / Save As dialogs, x86) and
+       cfd-manager.exe.
     2. Builds the installer, which embeds those binaries plus LICENSE and README.md.
     3. Refuses to ship binaries that contain build-machine paths (user name / folders).
     Output: dist\CustomerFD-Setup.exe (and the loose binaries for development).
@@ -15,6 +16,8 @@ Push-Location $Root
 $savedRustFlags = $env:RUSTFLAGS
 try {
     $relDir = Join-Path $Root "target\release"
+    $x86Target = "i686-pc-windows-msvc"
+    $relDirX86 = Join-Path $Root "target\$x86Target\release"
     $distDir = Join-Path $Root "dist"
 
     Stop-Process -Name "cfd-manager", "cfd-installer", "CustomerFD-Setup" -Force -ErrorAction SilentlyContinue
@@ -33,7 +36,8 @@ try {
 
     # Explorer keeps a registered cfd_shell.dll loaded (e.g. one registered from target\release
     # during development). Cargo cannot replace a loaded DLL, but Windows allows renaming it.
-    foreach ($dll in @((Join-Path $relDir "cfd_shell.dll"), (Join-Path $relDir "deps\cfd_shell.dll"))) {
+    foreach ($dll in @((Join-Path $relDir "cfd_shell.dll"), (Join-Path $relDir "deps\cfd_shell.dll"),
+                       (Join-Path $relDirX86 "cfd_shell.dll"), (Join-Path $relDirX86 "deps\cfd_shell.dll"))) {
         Get-ChildItem (Split-Path $dll) -Filter "cfd_shell.dll.*.old" -ErrorAction SilentlyContinue |
             Remove-Item -Force -ErrorAction SilentlyContinue
         if (Test-Path $dll) {
@@ -50,8 +54,17 @@ try {
     cargo build --release -p cfd-shell -p cfd-manager
     if ($LASTEXITCODE -ne 0) { throw "cargo build --release failed ($LASTEXITCODE)" }
 
+    Write-Host "==> Building the 32-bit cfd_shell.dll ($x86Target)..." -ForegroundColor Cyan
+    if (-not ((& rustup target list --installed) -contains $x86Target)) {
+        & rustup target add $x86Target
+        if ($LASTEXITCODE -ne 0) { throw "rustup target add $x86Target failed ($LASTEXITCODE)" }
+    }
+    cargo build --release -p cfd-shell --target $x86Target
+    if ($LASTEXITCODE -ne 0) { throw "cargo build --release --target $x86Target failed ($LASTEXITCODE)" }
+
     Write-Host "==> Packaging installer (CustomerFD-Setup.exe)..." -ForegroundColor Cyan
     $env:CFD_PAYLOAD_DIR = $relDir
+    $env:CFD_PAYLOAD_X86_DIR = $relDirX86
     $env:CFD_PACK_STAMP = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString()
     cargo build --release -p cfd-installer
     if ($LASTEXITCODE -ne 0) { throw "cfd-installer build failed ($LASTEXITCODE)" }
@@ -81,6 +94,7 @@ try {
     $needles += $Root
     $bins = @(
         (Join-Path $relDir "cfd_shell.dll"),
+        (Join-Path $relDirX86 "cfd_shell.dll"),
         (Join-Path $relDir "cfd-manager.exe"),
         $setupDst
     ) | Where-Object { Test-Path $_ }

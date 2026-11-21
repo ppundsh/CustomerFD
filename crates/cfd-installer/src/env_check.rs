@@ -196,6 +196,22 @@ pub fn verify_install(dir: &Path, registered: bool) -> Result<(), String> {
                 tr("沒有註冊。", "is not registered.")
             )),
         }
+        let dll32 = crate::install::shell_dll_x86(dir);
+        if dll32.is_file() {
+            let expected32 = dll32.display().to_string();
+            match cfd_core::registry::registered_dll_path_32(&root.clsid) {
+                Some(p) if p.eq_ignore_ascii_case(&expected32) => {}
+                _ => problems.push(format!(
+                    "{}「{}」{}",
+                    tr("側邊欄項目", "Sidebar item"),
+                    root.name,
+                    tr(
+                        "沒有註冊給 32 位元程式（它們的開啟／另存新檔視窗會看不到）。",
+                        "is not registered for 32-bit programs (their Open / Save As dialogs will not show it)."
+                    )
+                )),
+            }
+        }
         let Some(clsid) = parse_guid(&root.clsid) else {
             problems.push(format!("CLSID {}", root.clsid));
             continue;

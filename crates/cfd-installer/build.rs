@@ -10,16 +10,29 @@ mod build_res;
 
 use std::path::PathBuf;
 
-/// (file in the payload folder or workspace, name inside the installer)
-const FILES: &[(&str, &str, bool)] = &[
-    ("cfd-manager.exe", "cfd-manager.exe", true),
-    ("cfd_shell.dll", "cfd_shell.dll", true),
-    ("LICENSE", "LICENSE.txt", false),
-    ("README.md", "README.md", false),
+#[derive(Clone, Copy)]
+enum Src {
+    /// x64 release folder (`CFD_PAYLOAD_DIR`, default `target/release`)
+    Payload,
+    /// 32-bit release folder (`CFD_PAYLOAD_X86_DIR`, default `target/i686-pc-windows-msvc/release`)
+    PayloadX86,
+    /// workspace root
+    Workspace,
+}
+
+/// (source file, name inside the installer, where it comes from). `cfd_shell.x86.dll` is
+/// installed as `x86\cfd_shell.dll` (see `install::target_path`).
+const FILES: &[(&str, &str, Src)] = &[
+    ("cfd-manager.exe", "cfd-manager.exe", Src::Payload),
+    ("cfd_shell.dll", "cfd_shell.dll", Src::Payload),
+    ("cfd_shell.dll", "cfd_shell.x86.dll", Src::PayloadX86),
+    ("LICENSE", "LICENSE.txt", Src::Workspace),
+    ("README.md", "README.md", Src::Workspace),
 ];
 
 fn main() {
     println!("cargo:rerun-if-env-changed=CFD_PAYLOAD_DIR");
+    println!("cargo:rerun-if-env-changed=CFD_PAYLOAD_X86_DIR");
     println!("cargo:rerun-if-env-changed=CFD_PACK_STAMP");
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let root = manifest_dir
@@ -30,16 +43,23 @@ fn main() {
     let payload_dir = std::env::var("CFD_PAYLOAD_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| root.join("target").join("release"));
+    let payload_x86_dir = std::env::var("CFD_PAYLOAD_X86_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            root.join("target")
+                .join("i686-pc-windows-msvc")
+                .join("release")
+        });
 
     let mut out = Vec::new();
     out.extend_from_slice(b"CFDPAK1\0");
     let mut entries: Vec<(&str, Vec<u8>)> = Vec::new();
     let mut complete = true;
-    for (src, name, from_payload) in FILES {
-        let path = if *from_payload {
-            payload_dir.join(src)
-        } else {
-            root.join(src)
+    for (src, name, from) in FILES {
+        let path = match from {
+            Src::Payload => payload_dir.join(src),
+            Src::PayloadX86 => payload_x86_dir.join(src),
+            Src::Workspace => root.join(src),
         };
         println!("cargo:rerun-if-changed={}", path.display());
         match std::fs::read(&path) {

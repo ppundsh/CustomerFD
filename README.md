@@ -54,6 +54,7 @@ Requires Rust (stable, MSVC toolchain) and the Windows 10/11 SDK (`rc.exe`, for 
 
 ### Documentation
 - 🏛️ [Architecture](./doc/architecture.md) — shell namespace extension, registry layout, configuration file.
+- 🧭 [Where the sidebar items appear](./doc/compatibility.md) — Explorer, Open / Save As dialogs (64- and 32-bit), folder pickers, and the known limits.
 - ⬆️ [Installation, version check and auto-update](./doc/updates.md) — installer switches, update flow, release signing.
 - 🎨 [UI design guidelines](./doc/ui-design.md) — Fluent tokens and interaction rules shared with cbxshell-rs.
 
@@ -111,6 +112,7 @@ Windows 11（Windows 10 1803 以上也可使用，背景材質改為 Acrylic）�
 
 ### 技術文件
 - 🏛️ [架構說明](./doc/architecture.zh-TW.md)：Shell Namespace Extension、登錄檔配置、設定檔格式。
+- 🧭 [側邊欄項目會出現在哪裡](./doc/compatibility.zh-TW.md)：檔案總管、開啟／另存新檔視窗（64 與 32 位元）、選擇資料夾視窗，以及已知限制。
 - ⬆️ [安裝、版本檢測與自動更新](./doc/updates.zh-TW.md)：安裝參數、更新流程、發行簽章。
 - 🎨 [UI 設計規範](./doc/ui-design.zh-TW.md)：與 cbxshell-rs 共用的 Fluent 色票與互動規則。
 

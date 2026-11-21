@@ -12,7 +12,7 @@ CustomerFD ships as a single installer, `CustomerFD-Setup.exe`, installed for th
 |---|---|
 | Location | `%LOCALAPPDATA%\Programs\CustomerFD` (change with `--dir` or "Change..." in the installer) |
 | Rights | `asInvoker`, writes to HKCU only; no UAC |
-| Files | `cfd-manager.exe`, `cfd_shell.dll`, `uninstall.exe` (the installer itself), `LICENSE.txt`, `README.md` |
+| Files | `cfd-manager.exe`, `cfd_shell.dll` (x64, for Explorer and 64-bit programs), `x86\cfd_shell.dll` (for 32-bit programs' Open / Save As dialogs), `uninstall.exe` (the installer itself), `LICENSE.txt`, `README.md` |
 | Uninstall | Listed under Settings › Apps › Installed apps (`HKCU\…\Uninstall\CustomerFD`: `DisplayVersion`, `UninstallString`, `QuietUninstallString`) |
 | Start menu | "CustomerFD" shortcut to `cfd-manager.exe` |
 | Sidebar registration | The installer calls `DllRegisterServer` of `cfd_shell.dll` directly (writing HKCU from the existing `config.json`); no `regsvr32` |

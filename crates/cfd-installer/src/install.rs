@@ -20,6 +20,9 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const UNINSTALL_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\CustomerFD";
 const MANAGER_EXE: &str = "cfd-manager.exe";
 pub const SHELL_DLL: &str = "cfd_shell.dll";
+/// Payload name of the 32-bit extension, installed as `x86\cfd_shell.dll`.
+const SHELL_DLL_X86_PAYLOAD: &str = "cfd_shell.x86.dll";
+pub use cfd_core::registry::X86_DIR;
 const UNINSTALLER_EXE: &str = "uninstall.exe";
 const MANAGER_CLASS: &str = "CustomerFDManagerWindow";
 
@@ -84,6 +87,20 @@ fn start_menu_lnk() -> Option<PathBuf> {
             .join("Microsoft\\Windows\\Start Menu\\Programs")
             .join(format!("{APP_NAME}.lnk")),
     )
+}
+
+/// Where a payload file goes inside the install folder.
+fn target_path(dir: &Path, name: &str) -> PathBuf {
+    if name == SHELL_DLL_X86_PAYLOAD {
+        dir.join(X86_DIR).join(SHELL_DLL)
+    } else {
+        dir.join(name)
+    }
+}
+
+/// Path of the installed 32-bit extension.
+pub fn shell_dll_x86(dir: &Path) -> PathBuf {
+    dir.join(X86_DIR).join(SHELL_DLL)
 }
 
 /// Writes `bytes` to `path`; a locked file (a DLL loaded by Explorer, a running exe) is renamed
@@ -259,8 +276,13 @@ pub fn install(dir: &Path, opts: Options, update: bool) -> Result<(), String> {
     let was_registered = cfd_core::registry::is_registered();
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     remove_stale_old_files(dir);
+    remove_stale_old_files(&dir.join(X86_DIR));
     for (name, bytes) in &files {
-        write_replacing(&dir.join(name), bytes)?;
+        let path = target_path(dir, name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+        }
+        write_replacing(&path, bytes)?;
     }
     // The uninstaller is this very program.
     if let Ok(me) = std::env::current_exe() {
@@ -357,6 +379,15 @@ pub fn uninstall(purge: bool) -> Result<(), String> {
         }
     }
     remove_stale_old_files(&dir);
+    // 32-bit extension: a 32-bit program may still have it loaded.
+    let x86 = dir.join(X86_DIR);
+    let p = x86.join(SHELL_DLL);
+    if p.exists() && std::fs::remove_file(&p).is_err() {
+        let _ = std::fs::create_dir_all(&trash);
+        let _ = std::fs::rename(&p, trash.join("cfd_shell.x86.dll"));
+    }
+    remove_stale_old_files(&x86);
+    let _ = std::fs::remove_dir(&x86);
     if let Some(lnk) = start_menu_lnk() {
         let _ = std::fs::remove_file(lnk);
     }

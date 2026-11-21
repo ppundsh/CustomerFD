@@ -185,14 +185,39 @@ pub fn registered_dll_path() -> Option<String> {
     read_reg_sz(HKEY_CURRENT_USER, &clsid_key, None)
 }
 
-fn register_single_root(
+/// 32-bit programs read `HKCU\Software\Classes\CLSID` through the WOW64 view
+/// (`Software\Classes\WOW6432Node\CLSID`), so they only see the sidebar roots (for example in
+/// their Open / Save As dialogs) when the CLSIDs are registered there too, pointing at the
+/// 32-bit build of the extension.
+const CLSID_BASE: &str = "Software\\Classes\\CLSID";
+const CLSID_BASE_WOW64: &str = "Software\\Classes\\WOW6432Node\\CLSID";
+/// Subfolder of the install folder holding the 32-bit `cfd_shell.dll`.
+pub const X86_DIR: &str = "x86";
+
+/// The (64-bit, 32-bit) extension DLLs that belong together, given either one of them.
+pub fn extension_pair(dll: &Path) -> (PathBuf, Option<PathBuf>) {
+    let file = dll.file_name().map(PathBuf::from).unwrap_or_default();
+    let parent = dll.parent().map(Path::to_path_buf).unwrap_or_default();
+    let in_x86 = parent
+        .file_name()
+        .is_some_and(|n| n.eq_ignore_ascii_case(X86_DIR));
+    let (x64, x86) = if in_x86 {
+        let up = parent.parent().map(Path::to_path_buf).unwrap_or_default();
+        (up.join(&file), dll.to_path_buf())
+    } else {
+        (dll.to_path_buf(), parent.join(X86_DIR).join(&file))
+    };
+    let x86 = x86.is_file().then_some(x86);
+    (x64, x86)
+}
+
+fn write_clsid_keys(
+    base: &str,
     root: &RootFolderEntry,
     show_in_sidebar: bool,
-    hide_from_desktop: bool,
     dll_str: &str,
 ) -> Result<(), String> {
-    let clsid = &root.clsid;
-    let clsid_base = format!("Software\\Classes\\CLSID\\{clsid}");
+    let clsid_base = format!("{base}\\{}", root.clsid);
 
     write_reg_sz(HKEY_CURRENT_USER, &clsid_base, None, &root.name)?;
     write_reg_dword(
@@ -227,9 +252,25 @@ fn register_single_root(
 
     let sf_key = format!("{clsid_base}\\ShellFolder");
     // SFGAO_HASSUBFOLDER | FOLDER | FILESYSANCESTOR | BROWSABLE | STORAGEANCESTOR. Without
-    // FILESYSANCESTOR the common file dialogs (Save As) leave the root out of their sidebar.
+    // FILESYSANCESTOR the common file dialogs (Open, Save As) leave the root out of their sidebar.
     write_reg_dword(HKEY_CURRENT_USER, &sf_key, "Attributes", 0xB880_0000)?;
     write_reg_dword(HKEY_CURRENT_USER, &sf_key, "FolderValueFlags", 0x28)?;
+    Ok(())
+}
+
+fn register_single_root(
+    root: &RootFolderEntry,
+    show_in_sidebar: bool,
+    hide_from_desktop: bool,
+    dll_str: &str,
+    dll32_str: Option<&str>,
+) -> Result<(), String> {
+    let clsid = &root.clsid;
+    write_clsid_keys(CLSID_BASE, root, show_in_sidebar, dll_str)?;
+    match dll32_str {
+        Some(dll32) => write_clsid_keys(CLSID_BASE_WOW64, root, show_in_sidebar, dll32)?,
+        None => delete_reg_tree(HKEY_CURRENT_USER, &format!("{CLSID_BASE_WOW64}\\{clsid}")),
+    }
 
     let ns_key = format!(
         "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Desktop\\NameSpace\\{clsid}"
@@ -247,7 +288,6 @@ fn register_single_root(
 }
 
 pub fn unregister_single_clsid(clsid: &str) {
-    let clsid_base = format!("Software\\Classes\\CLSID\\{clsid}");
     let ns_key = format!(
         "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Desktop\\NameSpace\\{clsid}"
     );
@@ -255,16 +295,29 @@ pub fn unregister_single_clsid(clsid: &str) {
         "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\HideDesktopIcons\\NewStartPanel";
 
     delete_reg_tree(HKEY_CURRENT_USER, &ns_key);
-    delete_reg_tree(HKEY_CURRENT_USER, &clsid_base);
+    delete_reg_tree(HKEY_CURRENT_USER, &format!("{CLSID_BASE}\\{clsid}"));
+    delete_reg_tree(HKEY_CURRENT_USER, &format!("{CLSID_BASE_WOW64}\\{clsid}"));
     delete_reg_value(HKEY_CURRENT_USER, hide_key, clsid);
+}
+
+/// `InprocServer32` of a root as 32-bit programs see it (`None` when not registered for them).
+pub fn registered_dll_path_32(clsid: &str) -> Option<String> {
+    read_reg_sz(
+        HKEY_CURRENT_USER,
+        &format!("{CLSID_BASE_WOW64}\\{clsid}\\InprocServer32"),
+        None,
+    )
 }
 
 /// Registers all configured root folders in HKCU (no admin required) and cleans up
 /// any stale CustomerFD CLSIDs that were removed.
 pub fn register_namespace(cfg: &AppConfig, dll_path: &Path) -> Result<(), String> {
-    let dll_str = dll_path
+    // Either build may be the caller (DllRegisterServer of the x64 or the x86 DLL).
+    let (x64, x86) = extension_pair(dll_path);
+    let dll_str = x64
         .to_str()
         .ok_or_else(|| "Invalid DLL path encoding".to_string())?;
+    let dll32_str = x86.as_deref().and_then(Path::to_str);
 
     // Remove stale CLSIDs in our reserved range.
     for clsid in crate::config::reserved_clsids() {
@@ -278,7 +331,13 @@ pub fn register_namespace(cfg: &AppConfig, dll_path: &Path) -> Result<(), String
     }
 
     for root in &cfg.root_folders {
-        register_single_root(root, cfg.show_in_sidebar, cfg.hide_from_desktop, dll_str)?;
+        register_single_root(
+            root,
+            cfg.show_in_sidebar,
+            cfg.hide_from_desktop,
+            dll_str,
+            dll32_str,
+        )?;
     }
 
     notify_explorer_refresh();
@@ -388,4 +447,26 @@ pub fn restart_explorer() -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extension_pair_finds_both_builds_from_either_one() {
+        let dir = std::env::temp_dir().join(format!("cfd-pair-{}", std::process::id()));
+        let x86_dir = dir.join(X86_DIR);
+        std::fs::create_dir_all(&x86_dir).unwrap();
+        let x64 = dir.join("cfd_shell.dll");
+        let x86 = x86_dir.join("cfd_shell.dll");
+        std::fs::write(&x64, b"").unwrap();
+        // No 32-bit build installed yet.
+        assert_eq!(extension_pair(&x64), (x64.clone(), None));
+        std::fs::write(&x86, b"").unwrap();
+        assert_eq!(extension_pair(&x64), (x64.clone(), Some(x86.clone())));
+        // DllRegisterServer of the 32-bit DLL still registers the x64 one for Explorer.
+        assert_eq!(extension_pair(&x86), (x64.clone(), Some(x86.clone())));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
